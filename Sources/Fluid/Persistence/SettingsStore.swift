@@ -14,6 +14,7 @@ final class SettingsStore: ObservableObject {
     static let microphonePriorityMigrationVersion = 4
 
     static let shared = SettingsStore()
+    private static let automaticWhisperLanguageCode = "auto"
     static let transcriptionPreviewCharLimitRange: ClosedRange<Int> = 50...800
     static let transcriptionPreviewCharLimitStep = 50
     static let defaultTranscriptionPreviewCharLimit = 150
@@ -3202,7 +3203,7 @@ final class SettingsStore: ObservableObject {
             privateAIBackendPreference: self.privateAIBackendPreference,
             privateAIContextTokenLimit: self.privateAIContextTokenLimit,
             selectedSpeechModel: self.selectedSpeechModel,
-            selectedWhisperLanguageCode: self.selectedWhisperLanguageCode,
+            selectedWhisperLanguageCode: Self.whisperLanguageBackupValue(for: self.selectedWhisperLanguageCode),
             selectedCohereLanguage: self.selectedCohereLanguage,
             selectedNemotronLanguage: self.selectedNemotronLanguage,
             selectedAppleSpeechLocaleIdentifier: self.selectedAppleSpeechLocaleIdentifier,
@@ -3326,7 +3327,7 @@ final class SettingsStore: ObservableObject {
         }
         self.selectedSpeechModel = payload.selectedSpeechModel
         if let selectedWhisperLanguageCode = payload.selectedWhisperLanguageCode {
-            self.selectedWhisperLanguageCode = selectedWhisperLanguageCode
+            self.selectedWhisperLanguageCode = Self.whisperLanguageCode(fromBackupValue: selectedWhisperLanguageCode)
         }
         self.selectedCohereLanguage = payload.selectedCohereLanguage
         if let selectedNemotronLanguage = payload.selectedNemotronLanguage {
@@ -5745,15 +5746,23 @@ extension SettingsStore {
     var selectedWhisperLanguageCode: String? {
         get {
             if let stored = self.defaults.string(forKey: Keys.selectedWhisperLanguageCode) {
-                guard stored != "auto" else { return nil }
+                guard stored != Self.automaticWhisperLanguageCode else { return nil }
                 return VoiceEngineLanguageCatalog.whisperLanguage(forCode: stored) == nil ? nil : stored
             }
             return VoiceEngineLanguageCatalog.whisperLanguageCode(for: self.onboardingSelectedLanguageID)
         }
         set {
             objectWillChange.send()
-            self.defaults.set(newValue ?? "auto", forKey: Keys.selectedWhisperLanguageCode)
+            self.defaults.set(newValue ?? Self.automaticWhisperLanguageCode, forKey: Keys.selectedWhisperLanguageCode)
         }
+    }
+
+    static func whisperLanguageBackupValue(for languageCode: String?) -> String {
+        languageCode ?? self.automaticWhisperLanguageCode
+    }
+
+    static func whisperLanguageCode(fromBackupValue value: String) -> String? {
+        value == self.automaticWhisperLanguageCode ? nil : value
     }
 
     var selectedCohereLanguage: CohereLanguage {
