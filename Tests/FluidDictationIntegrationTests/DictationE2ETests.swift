@@ -1830,6 +1830,54 @@ final class DictationE2ETests: XCTestCase {
         }
     }
 
+    func testPrivateAIDictationTokenBudgetFallsBackBeforeLongInputCanTruncate() {
+        let shortTranscript = Array(repeating: "word", count: 600).joined(separator: " ")
+        let longTranscript = Array(repeating: "word", count: 3_385).joined(separator: " ")
+
+        XCTAssertTrue(SettingsStore.privateAIDictationTokenBudget(
+            forInputText: shortTranscript,
+            contextTokenLimit: 4096
+        ).hasSufficientHeadroom)
+        XCTAssertFalse(SettingsStore.privateAIDictationTokenBudget(
+            forInputText: longTranscript,
+            contextTokenLimit: 4096
+        ).hasSufficientHeadroom)
+    }
+
+    func testPrivateAIDictationRejectsLongInputBeforeCallingProvider() async {
+        let longTranscript = Array(repeating: "word", count: 3_385).joined(separator: " ")
+        let runtime = PrivateAIIntegrationService.RuntimeConfiguration(
+            selectedProviderID: "private",
+            providerKey: "private",
+            baseURL: "",
+            model: "fluid-1",
+            apiKey: "",
+            localModelPath: nil,
+            usesStablePromptPrefixKVCache: true,
+            usesFluid1Boost: true,
+            contextTokenLimit: 4096
+        )
+        let context = PrivateAIIntegrationService.AppContext(
+            appName: "Notes",
+            bundleID: "com.apple.Notes",
+            windowTitle: "",
+            appVersion: nil
+        )
+
+        do {
+            _ = try await PrivateAIIntegrationService.shared.enhanceDictation(
+                longTranscript,
+                runtime: runtime,
+                context: context
+            )
+            XCTFail("Expected long dictation to fall back before provider generation")
+        } catch AIProcessingError.dictationExceedsAIContextWindow {
+            // Expected: ContentView catches this and types the complete raw transcript.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testPrivateAIProviderLocalRuntimeOnlyHandlesPrivateModels() {
         self.withRestoredDefaults(keys: [self.privateAILocalModelPathKey]) {
             let tempURL = FileManager.default.temporaryDirectory

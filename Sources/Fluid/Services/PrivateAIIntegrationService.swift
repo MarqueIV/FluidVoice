@@ -391,7 +391,8 @@ actor PrivateAIIntegrationService {
         runtime: RuntimeConfiguration,
         context: AppContext
     ) async throws -> EnhancementResult {
-        try await Self.provider.enhanceDictation(inputText, runtime: runtime, context: context)
+        try Self.validateDictationHeadroom(inputText, contextTokenLimit: runtime.contextTokenLimit)
+        return try await Self.provider.enhanceDictation(inputText, runtime: runtime, context: context)
     }
 
     func enhanceDictation(
@@ -400,12 +401,23 @@ actor PrivateAIIntegrationService {
         context: AppContext,
         streamHandler: PrivateAIStreamHandler?
     ) async throws -> EnhancementResult {
-        try await Self.provider.enhanceDictation(
+        try Self.validateDictationHeadroom(inputText, contextTokenLimit: runtime.contextTokenLimit)
+        return try await Self.provider.enhanceDictation(
             inputText,
             runtime: runtime,
             context: context,
             streamHandler: streamHandler
         )
+    }
+
+    private nonisolated static func validateDictationHeadroom(_ inputText: String, contextTokenLimit: Int) throws {
+        let budget = SettingsStore.privateAIDictationTokenBudget(
+            forInputText: inputText,
+            contextTokenLimit: contextTokenLimit
+        )
+        guard budget.hasSufficientHeadroom else {
+            throw AIProcessingError.dictationExceedsAIContextWindow
+        }
     }
 
     func rewrite(

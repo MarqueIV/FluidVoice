@@ -20,6 +20,7 @@ enum AIProcessingError: LocalizedError {
     case missingAPIKey(provider: String)
     case missingModel(provider: String)
     case emptyResponse
+    case dictationExceedsAIContextWindow
 
     var errorDescription: String? {
         switch self {
@@ -31,6 +32,8 @@ enum AIProcessingError: LocalizedError {
             return "No model selected for \(provider)"
         case .emptyResponse:
             return "AI returned an empty response"
+        case .dictationExceedsAIContextWindow:
+            return "Dictation exceeded the AI context window"
         }
     }
 
@@ -39,7 +42,7 @@ enum AIProcessingError: LocalizedError {
         switch self {
         case .noVerifiedProvider, .missingAPIKey, .missingModel:
             return true
-        case .emptyResponse:
+        case .emptyResponse, .dictationExceedsAIContextWindow:
             return false
         }
     }

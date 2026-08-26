@@ -60,18 +60,32 @@ final class SettingsStore: ObservableObject {
         return max(100, Int((inputTokens * 0.75 / 50).rounded(.up)) * 50)
     }
 
-    static func privateAIMaxOutputTokens(forInputText inputText: String, contextTokenLimit: Int) -> Int {
+    struct PrivateAIDictationTokenBudget: Equatable {
+        let maxOutputTokens: Int
+        let hasSufficientHeadroom: Bool
+    }
+
+    static func privateAIDictationTokenBudget(forInputText inputText: String, contextTokenLimit: Int) -> PrivateAIDictationTokenBudget {
         let wordCount = inputText.split { $0.isWhitespace || $0.isNewline }.count
         let estimatedInputTokens = max(1, Int((Double(wordCount) / 0.75).rounded(.up)))
         let requestedOutputTokens = max(
             Self.privateAIDictationMinimumOutputTokens,
             Int((Double(estimatedInputTokens) * 1.15).rounded(.up)) + 64
         )
-        let availableOutputTokens = max(
-            Self.privateAIDictationMinimumOutputTokens,
-            Self.clampPrivateAIContextTokenLimit(contextTokenLimit) - Self.privateAIDictationSystemOverheadTokens - estimatedInputTokens
+        let availableOutputTokens = Self.clampPrivateAIContextTokenLimit(contextTokenLimit)
+            - Self.privateAIDictationSystemOverheadTokens
+            - estimatedInputTokens
+        return PrivateAIDictationTokenBudget(
+            maxOutputTokens: min(requestedOutputTokens, max(Self.privateAIDictationMinimumOutputTokens, availableOutputTokens)),
+            hasSufficientHeadroom: availableOutputTokens >= requestedOutputTokens
         )
-        return min(requestedOutputTokens, availableOutputTokens)
+    }
+
+    static func privateAIMaxOutputTokens(forInputText inputText: String, contextTokenLimit: Int) -> Int {
+        self.privateAIDictationTokenBudget(
+            forInputText: inputText,
+            contextTokenLimit: contextTokenLimit
+        ).maxOutputTokens
     }
 
     enum PrivateAIBackendPreference: String, Codable, CaseIterable, Identifiable {
