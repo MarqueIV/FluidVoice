@@ -43,18 +43,37 @@ final class AnalyticsDatabaseTests: XCTestCase {
     func testAcknowledgementPurgesOutboxAndTruncatesWAL() throws {
         let databaseURL = self.temporaryDirectory.appendingPathComponent("analytics.sqlite3")
         let database = try self.makeDatabase(url: databaseURL)
-        try database.recordActivity(.app, at: Date())
-        let items = try database.readyOutbox(limit: 50, at: Date())
+        let flushDate = Date()
+        try database.recordActivity(.app, at: flushDate.addingTimeInterval(-8 * 24 * 60 * 60))
+        let items = try database.readyOutbox(limit: 50, at: flushDate)
         XCTAssertEqual(items.count, 1)
 
-        try database.acknowledgeUploaded(ids: items.map(\.id), at: Date())
+        try database.acknowledgeUploaded(ids: items.map(\.id), at: flushDate)
 
-        XCTAssertTrue(try database.readyOutbox(limit: 50, at: Date()).isEmpty)
+        XCTAssertTrue(try database.readyOutbox(limit: 50, at: flushDate).isEmpty)
         let walURL = URL(fileURLWithPath: databaseURL.path + "-wal")
         if FileManager.default.fileExists(atPath: walURL.path) {
             let attributes = try FileManager.default.attributesOfItem(atPath: walURL.path)
             XCTAssertEqual(attributes[.size] as? UInt64, 0)
         }
+    }
+
+    func testDailyActivityWaitsForWeekEndWhileDetailedEventsRemainReady() throws {
+        let database = try self.makeDatabase()
+        let monday = Date(timeIntervalSince1970: 1_736_121_600) // 2025-01-06 UTC
+        let nextMonday = monday.addingTimeInterval(7 * 24 * 60 * 60)
+
+        try database.recordOnboardingStarted(origin: .firstRun, at: monday)
+        for dayOffset in 1..<7 {
+            try database.recordActivity(.app, at: monday.addingTimeInterval(Double(dayOffset * 24 * 60 * 60)))
+        }
+
+        let duringWeek = try self.events(in: database, at: nextMonday.addingTimeInterval(-1))
+        XCTAssertEqual(duringWeek.map(\.name), [AnalyticsEvent.onboardingStarted.rawValue])
+
+        let afterWeek = try self.events(in: database, at: nextMonday)
+        XCTAssertEqual(afterWeek.filter { $0.name == AnalyticsEvent.activeUser.rawValue }.count, 7)
+        XCTAssertEqual(afterWeek.filter { $0.name == AnalyticsEvent.onboardingStarted.rawValue }.count, 1)
     }
 
     func testInterruptedDownloadIsRecoveredWithoutDuration() throws {
@@ -109,8 +128,8 @@ final class AnalyticsDatabaseTests: XCTestCase {
         XCTAssertEqual(finish.properties["duration_seconds"] as? Double, 25)
     }
 
-    func testConsentGateRejectsWorkQueuedBeforeOptOut() {
-        let gate = AnalyticsConsentGate()
+    func testDetailedConsentGateRejectsWorkQueuedBeforeOptOut() {
+        let gate = DetailedAnalyticsConsentGate()
         let queuedGeneration = gate.currentGeneration
         let currentGeneration = gate.advance()
 
@@ -118,9 +137,41 @@ final class AnalyticsDatabaseTests: XCTestCase {
         XCTAssertTrue(gate.accepts(currentGeneration))
     }
 
+    func testPurgingDetailedAnalyticsPreservesOnlyDailyActivity() throws {
+        let database = try self.makeDatabase()
+        let firstDay = Date(timeIntervalSince1970: 1_735_689_600) // 2025-01-01 UTC
+        let secondDay = firstDay.addingTimeInterval(24 * 60 * 60)
+        let descriptor = AnalyticsModelDescriptor(provider: "Fluid Audio", model: "Parakeet TDT")
+        let downloadID = UUID().uuidString.lowercased()
+
+        try database.recordActivity(.app, at: firstDay)
+        try database.recordUsage(mode: .dictation, transcriptionModel: descriptor, aiModel: nil, at: firstDay)
+        try database.recordOnboardingStarted(origin: .firstRun, at: firstDay)
+        try database.recordOnboardingStepViewed(.welcome, origin: .firstRun, at: firstDay)
+        try database.recordModelDownloadStarted(
+            id: downloadID,
+            descriptor: descriptor,
+            source: .onboarding,
+            at: firstDay
+        )
+        try database.finalizeDays(before: secondDay)
+
+        try database.purgeDetailedAnalytics()
+
+        var events = try self.events(in: database)
+        XCTAssertEqual(events.map(\.name), [AnalyticsEvent.activeUser.rawValue])
+
+        try database.recordActivity(.coreAction, at: firstDay.addingTimeInterval(60))
+        try database.finalizeDays(before: secondDay.addingTimeInterval(24 * 60 * 60))
+
+        events = try self.events(in: database)
+        XCTAssertEqual(events.map(\.name), [AnalyticsEvent.activeUser.rawValue])
+    }
+
     private func makeDatabase(url: URL? = nil) throws -> AnalyticsDatabase {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        calendar.firstWeekday = 2
         return try AnalyticsDatabase(
             url: url ?? self.temporaryDirectory.appendingPathComponent("analytics.sqlite3"),
             distinctID: "test-install-id",
@@ -129,8 +180,11 @@ final class AnalyticsDatabaseTests: XCTestCase {
         )
     }
 
-    private func events(in database: AnalyticsDatabase) throws -> [(name: String, properties: [String: Any])] {
-        try database.readyOutbox(limit: 100, at: Date.distantFuture).map { item in
+    private func events(
+        in database: AnalyticsDatabase,
+        at date: Date = .distantFuture
+    ) throws -> [(name: String, properties: [String: Any])] {
+        try database.readyOutbox(limit: 100, at: date).map { item in
             let object = try XCTUnwrap(JSONSerialization.jsonObject(with: item.payload) as? [String: Any])
             let name = try XCTUnwrap(object["event"] as? String)
             let properties = try XCTUnwrap(object["properties"] as? [String: Any])

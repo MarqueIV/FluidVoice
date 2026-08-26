@@ -300,15 +300,27 @@ final class AnalyticsDatabase {
         }
     }
 
+    /// Returns detailed events immediately and activity events only after their local week has ended.
     func readyOutbox(limit: Int, at date: Date) throws -> [AnalyticsOutboxItem] {
+        let currentWeekStart = self.calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date
         var statement: OpaquePointer?
         try self.prepare(
             "SELECT event_id, payload FROM outbox " +
-                "WHERE next_retry_at <= ? ORDER BY created_at LIMIT ?",
+                "WHERE next_retry_at <= ? " +
+                "AND (event_name != ? OR created_at < ?) " +
+                "ORDER BY created_at LIMIT ?",
             into: &statement
         )
         defer { sqlite3_finalize(statement) }
-        try self.bind([.double(date.timeIntervalSince1970), .integer(limit)], to: statement)
+        try self.bind(
+            [
+                .double(date.timeIntervalSince1970),
+                .text(AnalyticsEvent.activeUser.rawValue),
+                .double(currentWeekStart.timeIntervalSince1970),
+                .integer(limit),
+            ],
+            to: statement
+        )
 
         var items: [AnalyticsOutboxItem] = []
         while sqlite3_step(statement) == SQLITE_ROW {
@@ -365,6 +377,25 @@ final class AnalyticsDatabase {
             try self.execute("DELETE FROM daily_usage")
             try self.execute("DELETE FROM daily_model_usage")
             try self.execute("DELETE FROM event_dedupe")
+            try self.execute("DELETE FROM onboarding_flows")
+            try self.execute("DELETE FROM model_download_attempts")
+        }
+        try self.purgeDeletedPages()
+    }
+
+    /// Removes detailed analytics while preserving the daily active-user signal and its dedupe key.
+    func purgeDetailedAnalytics() throws {
+        try self.transaction {
+            try self.run(
+                "DELETE FROM outbox WHERE event_name != ?",
+                bindings: [.text(AnalyticsEvent.activeUser.rawValue)]
+            )
+            try self.execute("DELETE FROM daily_usage")
+            try self.execute("DELETE FROM daily_model_usage")
+            try self.run(
+                "DELETE FROM event_dedupe WHERE dedupe_key NOT LIKE ?",
+                bindings: [.text("activity:%")]
+            )
             try self.execute("DELETE FROM onboarding_flows")
             try self.execute("DELETE FROM model_download_attempts")
         }
