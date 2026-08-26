@@ -5741,20 +5741,20 @@ extension SettingsStore {
     }
 
     /// The language Whisper should transcribe, or `nil` to detect it from each recording.
-    /// Existing installs inherit the language chosen during onboarding until the user
-    /// explicitly selects Automatic or another language.
+    /// Existing installs keep automatic detection until the user selects a language.
     var selectedWhisperLanguageCode: String? {
         get {
-            if let stored = self.defaults.string(forKey: Keys.selectedWhisperLanguageCode) {
-                guard stored != Self.automaticWhisperLanguageCode else { return nil }
-                return VoiceEngineLanguageCatalog.whisperLanguage(forCode: stored) == nil ? nil : stored
-            }
-            return VoiceEngineLanguageCatalog.whisperLanguageCode(for: self.onboardingSelectedLanguageID)
+            Self.whisperLanguageCode(fromStoredValue: self.defaults.string(forKey: Keys.selectedWhisperLanguageCode))
         }
         set {
             objectWillChange.send()
             self.defaults.set(newValue ?? Self.automaticWhisperLanguageCode, forKey: Keys.selectedWhisperLanguageCode)
         }
+    }
+
+    static func whisperLanguageCode(fromStoredValue value: String?) -> String? {
+        guard let value, value != self.automaticWhisperLanguageCode else { return nil }
+        return VoiceEngineLanguageCatalog.whisperLanguage(forCode: value) == nil ? nil : value
     }
 
     static func whisperLanguageBackupValue(for languageCode: String?) -> String {
