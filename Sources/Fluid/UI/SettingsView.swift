@@ -57,11 +57,11 @@ struct SettingsView: View {
     @State private var cachedDefaultInputUID: String = ""
     @State private var cachedDefaultOutputName: String = ""
 
-    // Analytics consent UI state (default ON; user can opt-out)
-    @State private var shareAnonymousAnalytics: Bool = SettingsStore.shared.shareAnonymousAnalytics
+    // Detailed analytics consent UI state (default ON; daily activity remains enabled)
+    @State private var shareDetailedAnalytics: Bool = SettingsStore.shared.shareDetailedAnalytics
     @State private var showAnalyticsPrivacy: Bool = false
-    @State private var pendingAnalyticsValue: Bool? = nil
-    @State private var showAreYouSureToStopAnalytics: Bool = false
+    @State private var pendingDetailedAnalyticsValue: Bool? = nil
+    @State private var showDetailedAnalyticsConfirmation: Bool = false
     @State private var rollbackVersion: String = ""
     @State private var isRollingBack: Bool = false
     @State private var audioHistoryBudgetText: String = Self.audioBudgetText(for: SettingsStore.shared.audioHistoryBudgetGB)
@@ -99,40 +99,40 @@ struct SettingsView: View {
         self.activeShortcutRecordingTarget == target
     }
 
-    private var analyticsToggleBinding: Binding<Bool> {
+    private var detailedAnalyticsToggleBinding: Binding<Bool> {
         Binding(
             get: {
-                self.pendingAnalyticsValue ?? self.shareAnonymousAnalytics
+                self.pendingDetailedAnalyticsValue ?? self.shareDetailedAnalytics
             },
             set: { newValue in
                 // User is trying to turn OFF → ask first
-                if self.shareAnonymousAnalytics == true, newValue == false {
-                    self.pendingAnalyticsValue = false
-                    self.showAreYouSureToStopAnalytics = true
+                if self.shareDetailedAnalytics, !newValue {
+                    self.pendingDetailedAnalyticsValue = false
+                    self.showDetailedAnalyticsConfirmation = true
 
                     return
                 }
 
                 // Normal ON path
-                self.shareAnonymousAnalytics = newValue
+                self.shareDetailedAnalytics = newValue
                 self.applyAnalyticsConsentChange(newValue)
             }
         )
     }
 
-    private var analyticsConfirmationBinding: Binding<Bool> {
+    private var detailedAnalyticsConfirmationBinding: Binding<Bool> {
         Binding(
-            get: { self.showAreYouSureToStopAnalytics },
+            get: { self.showDetailedAnalyticsConfirmation },
             set: { newValue in
                 // Only open modal if we have a pending value
                 if newValue {
-                    if self.pendingAnalyticsValue != nil {
-                        self.showAreYouSureToStopAnalytics = true
+                    if self.pendingDetailedAnalyticsValue != nil {
+                        self.showDetailedAnalyticsConfirmation = true
                     }
                 } else {
                     // Closing the modal: reset pending state
-                    self.showAreYouSureToStopAnalytics = false
-                    self.pendingAnalyticsValue = nil
+                    self.showDetailedAnalyticsConfirmation = false
+                    self.pendingDetailedAnalyticsValue = nil
                 }
             }
         )
@@ -942,9 +942,11 @@ struct SettingsView: View {
                                     Divider().opacity(0.2)
 
                                     self.optionToggleRow(
-                                        title: "Share Anonymous Analytics",
-                                        description: "Send lean, anonymous daily usage, onboarding, retention, and model metrics. Never includes transcription text or prompts.",
-                                        isOn: self.analyticsToggleBinding
+                                        title: "Share Detailed Anonymous Analytics",
+                                        description: "Share anonymous daily feature, onboarding, and model metrics. " +
+                                            "When off, FluidVoice records one anonymous activity signal per day and sends them weekly to measure active use. " +
+                                            "Never includes transcription text or prompts.",
+                                        isOn: self.detailedAnalyticsToggleBinding
                                     )
 
                                     HStack {
@@ -1512,19 +1514,19 @@ struct SettingsView: View {
                 .frame(minWidth: 520, minHeight: 520)
                 .appTheme(self.theme)
         }
-        .sheet(isPresented: self.analyticsConfirmationBinding) {
+        .sheet(isPresented: self.detailedAnalyticsConfirmationBinding) {
             AnalyticsConfirmationView(
                 onConfirm: {
-                    if let pending = pendingAnalyticsValue {
-                        self.shareAnonymousAnalytics = pending
+                    if let pending = pendingDetailedAnalyticsValue {
+                        self.shareDetailedAnalytics = pending
                         self.applyAnalyticsConsentChange(pending)
                     }
-                    self.pendingAnalyticsValue = nil
-                    self.showAreYouSureToStopAnalytics = false
+                    self.pendingDetailedAnalyticsValue = nil
+                    self.showDetailedAnalyticsConfirmation = false
                 },
                 onCancel: {
-                    self.pendingAnalyticsValue = nil
-                    self.showAreYouSureToStopAnalytics = false
+                    self.pendingDetailedAnalyticsValue = nil
+                    self.showDetailedAnalyticsConfirmation = false
                 }
             )
         }
@@ -1672,9 +1674,9 @@ struct SettingsView: View {
     }
 
     private func syncLocalSettingsAfterBackupRestore() {
-        self.shareAnonymousAnalytics = SettingsStore.shared.shareAnonymousAnalytics
-        self.pendingAnalyticsValue = nil
-        self.showAreYouSureToStopAnalytics = false
+        self.shareDetailedAnalytics = SettingsStore.shared.shareDetailedAnalytics
+        self.pendingDetailedAnalyticsValue = nil
+        self.showDetailedAnalyticsConfirmation = false
         self.refreshAudioHistoryUsage()
     }
 
@@ -1826,8 +1828,8 @@ struct SettingsView: View {
     }
 
     private func applyAnalyticsConsentChange(_ enabled: Bool) {
-        SettingsStore.shared.shareAnonymousAnalytics = enabled
-        AnalyticsService.shared.setEnabled(enabled)
+        SettingsStore.shared.shareDetailedAnalytics = enabled
+        AnalyticsService.shared.setDetailedAnalyticsEnabled(enabled)
     }
 
     // MARK: - Helper Views
@@ -2975,21 +2977,25 @@ struct AnalyticsConfirmationView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Are you sure you want to stop sharing anonymous analytics?")
+            Text("Stop sharing detailed anonymous analytics?")
                 .font(.headline)
 
-            Text("By sharing anonymous usage data, you help us build the features you care about most. We never collect personal information (Audio, Transcription text etc), ever. Your support simply helps us make FluidVoice better for you.")
-                .font(self.theme.typography.bodySmall)
-                .foregroundStyle(.secondary)
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(self.theme.palette.cardBackground)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(self.theme.palette.cardBorder.opacity(0.6), lineWidth: 1)
-                )
+            Text(
+                "FluidVoice will stop sharing feature, onboarding, and model metrics. " +
+                    "One anonymous activity signal will still be recorded each day and sent weekly so we can measure active use. " +
+                    "We never collect audio, transcription text, prompts, or other personal information."
+            )
+            .font(self.theme.typography.bodySmall)
+            .foregroundStyle(.secondary)
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(self.theme.palette.cardBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(self.theme.palette.cardBorder.opacity(0.6), lineWidth: 1)
+            )
 
             Text(self.contactInfoText)
                 .font(self.theme.typography.bodySmall)
@@ -3005,7 +3011,7 @@ struct AnalyticsConfirmationView: View {
                     self.onCancel()
                 }
 
-                Button("Yes") {
+                Button("Stop Detailed Analytics") {
                     self.onConfirm()
                 }
                 .buttonStyle(.borderedProminent)

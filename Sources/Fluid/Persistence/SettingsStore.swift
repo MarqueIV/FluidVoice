@@ -1402,9 +1402,9 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    /// Anonymous analytics toggle (default: ON). Uses default-true semantics so existing installs
-    /// upgrading to a version that includes analytics do not silently default to OFF.
-    var shareAnonymousAnalytics: Bool {
+    /// Detailed anonymous analytics toggle (default: ON). The daily activity signal is always enabled.
+    /// Uses default-true semantics so existing installs upgrading to analytics do not default to OFF.
+    var shareDetailedAnalytics: Bool {
         get {
             let value = self.defaults.object(forKey: Keys.shareAnonymousAnalytics)
             if value == nil { return true }
@@ -3237,7 +3237,7 @@ final class SettingsStore: ObservableObject {
             autoUpdateCheckEnabled: self.autoUpdateCheckEnabled,
             betaReleasesEnabled: self.betaReleasesEnabled,
             enableDebugLogs: self.enableDebugLogs,
-            shareAnonymousAnalytics: self.shareAnonymousAnalytics,
+            shareAnonymousAnalytics: self.shareDetailedAnalytics,
             pressAndHoldMode: self.pressAndHoldMode,
             hotkeyMode: self.hotkeyMode,
             enableStreamingPreview: self.enableStreamingPreview,
@@ -3369,7 +3369,7 @@ final class SettingsStore: ObservableObject {
         self.autoUpdateCheckEnabled = payload.autoUpdateCheckEnabled
         self.betaReleasesEnabled = payload.betaReleasesEnabled
         self.enableDebugLogs = payload.enableDebugLogs
-        self.shareAnonymousAnalytics = payload.shareAnonymousAnalytics
+        self.shareDetailedAnalytics = payload.shareAnonymousAnalytics
         self.hotkeyMode = payload.hotkeyMode ?? (payload.pressAndHoldMode ? .hold : .toggle)
         self.enableStreamingPreview = payload.enableStreamingPreview
         if let experimentalParakeetUnifiedFinalEnabled = payload.experimentalParakeetUnifiedFinalEnabled {
