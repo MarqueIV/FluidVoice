@@ -371,6 +371,25 @@ final class AnalyticsDatabase {
         try self.purgeDeletedPages()
     }
 
+    /// Removes detailed analytics while preserving the daily active-user signal and its dedupe key.
+    func purgeDetailedAnalytics() throws {
+        try self.transaction {
+            try self.run(
+                "DELETE FROM outbox WHERE event_name != ?",
+                bindings: [.text(AnalyticsEvent.activeUser.rawValue)]
+            )
+            try self.execute("DELETE FROM daily_usage")
+            try self.execute("DELETE FROM daily_model_usage")
+            try self.run(
+                "DELETE FROM event_dedupe WHERE dedupe_key NOT LIKE ?",
+                bindings: [.text("activity:%")]
+            )
+            try self.execute("DELETE FROM onboarding_flows")
+            try self.execute("DELETE FROM model_download_attempts")
+        }
+        try self.purgeDeletedPages()
+    }
+
     private func createSchema() throws {
         try self.execute("""
         CREATE TABLE IF NOT EXISTS outbox (

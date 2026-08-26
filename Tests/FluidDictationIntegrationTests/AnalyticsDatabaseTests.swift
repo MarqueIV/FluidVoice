@@ -109,13 +109,44 @@ final class AnalyticsDatabaseTests: XCTestCase {
         XCTAssertEqual(finish.properties["duration_seconds"] as? Double, 25)
     }
 
-    func testConsentGateRejectsWorkQueuedBeforeOptOut() {
-        let gate = AnalyticsConsentGate()
+    func testDetailedConsentGateRejectsWorkQueuedBeforeOptOut() {
+        let gate = DetailedAnalyticsConsentGate()
         let queuedGeneration = gate.currentGeneration
         let currentGeneration = gate.advance()
 
         XCTAssertFalse(gate.accepts(queuedGeneration))
         XCTAssertTrue(gate.accepts(currentGeneration))
+    }
+
+    func testPurgingDetailedAnalyticsPreservesOnlyDailyActivity() throws {
+        let database = try self.makeDatabase()
+        let firstDay = Date(timeIntervalSince1970: 1_735_689_600) // 2025-01-01 UTC
+        let secondDay = firstDay.addingTimeInterval(24 * 60 * 60)
+        let descriptor = AnalyticsModelDescriptor(provider: "Fluid Audio", model: "Parakeet TDT")
+        let downloadID = UUID().uuidString.lowercased()
+
+        try database.recordActivity(.app, at: firstDay)
+        try database.recordUsage(mode: .dictation, transcriptionModel: descriptor, aiModel: nil, at: firstDay)
+        try database.recordOnboardingStarted(origin: .firstRun, at: firstDay)
+        try database.recordOnboardingStepViewed(.welcome, origin: .firstRun, at: firstDay)
+        try database.recordModelDownloadStarted(
+            id: downloadID,
+            descriptor: descriptor,
+            source: .onboarding,
+            at: firstDay
+        )
+        try database.finalizeDays(before: secondDay)
+
+        try database.purgeDetailedAnalytics()
+
+        var events = try self.events(in: database)
+        XCTAssertEqual(events.map(\.name), [AnalyticsEvent.activeUser.rawValue])
+
+        try database.recordActivity(.coreAction, at: firstDay.addingTimeInterval(60))
+        try database.finalizeDays(before: secondDay.addingTimeInterval(24 * 60 * 60))
+
+        events = try self.events(in: database)
+        XCTAssertEqual(events.map(\.name), [AnalyticsEvent.activeUser.rawValue])
     }
 
     private func makeDatabase(url: URL? = nil) throws -> AnalyticsDatabase {
