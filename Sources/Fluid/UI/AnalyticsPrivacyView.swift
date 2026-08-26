@@ -31,7 +31,7 @@ struct AnalyticsPrivacyView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     self.sectionTitle("Always collected")
                     self.bullet("A random installation ID, app version, and the operating-system label macOS.")
-                    self.bullet("One daily active-use signal after you interact with the app.")
+                    self.bullet("One active-use signal per local day after you interact with the app, buffered on this Mac and sent weekly.")
 
                     self.sectionTitle("When detailed analytics is enabled")
                     self.bullet("Daily totals for Dictation, Command Mode, Edit Mode, and meeting transcription.")

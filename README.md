@@ -264,7 +264,7 @@ FluidVoice is **local-first**. Your voice, audio, and transcribed text never lea
 
 ### What's Collected
 
-FluidVoice sends one anonymous daily activity signal to measure active use. Detailed anonymous analytics are enabled by default and can be disabled at any time from `Settings → Share Detailed Anonymous Analytics`; when disabled, only the daily activity signal is sent.
+FluidVoice records one anonymous activity signal per local day and uploads the week's buffered signals together after the week ends. Detailed anonymous analytics are enabled by default and can be disabled at any time from `Settings → Share Detailed Anonymous Analytics`; when disabled, only the weekly activity batch is sent.
 
 **Daily activity:**
 
