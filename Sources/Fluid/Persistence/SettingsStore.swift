@@ -24,6 +24,8 @@ final class SettingsStore: ObservableObject {
     static let privateAIDictationSystemOverheadTokens = 1280
     static let privateAIDictationMinimumOutputTokens = 256
     static let privateAIDictationRoundTripTokenCost = 2.75
+    private static let privateAIDenseSegmentByteThreshold = 12
+    private static let privateAIDenseBytesPerToken = 2
     static let privateAIBackendPreferenceDefaultsKey = "FluidIntelligenceBackendPreference"
     private static let forcedOnboardingResetIntroducedAt = Date(timeIntervalSince1970: 1_782_091_732)
     private let defaults = UserDefaults.standard
@@ -66,8 +68,7 @@ final class SettingsStore: ObservableObject {
     }
 
     static func privateAIDictationTokenBudget(forInputText inputText: String, contextTokenLimit: Int) -> PrivateAIDictationTokenBudget {
-        let wordCount = inputText.split { $0.isWhitespace || $0.isNewline }.count
-        let estimatedInputTokens = max(1, Int((Double(wordCount) / 0.75).rounded(.up)))
+        let estimatedInputTokens = self.estimatedPrivateAIInputTokens(for: inputText)
         let requestedOutputTokens = max(
             Self.privateAIDictationMinimumOutputTokens,
             Int((Double(estimatedInputTokens) * 1.15).rounded(.up)) + 64
@@ -79,6 +80,23 @@ final class SettingsStore: ObservableObject {
             maxOutputTokens: min(requestedOutputTokens, max(Self.privateAIDictationMinimumOutputTokens, availableOutputTokens)),
             hasSufficientHeadroom: availableOutputTokens >= requestedOutputTokens
         )
+    }
+
+    private static func estimatedPrivateAIInputTokens(for inputText: String) -> Int {
+        let segments = inputText.split { $0.isWhitespace || $0.isNewline }
+        let wordBasedEstimate = Int((Double(segments.count) / 0.75).rounded(.up))
+        // Keep the existing prose estimate, but charge long unbroken input by UTF-8 size so
+        // URLs, identifiers, and languages without whitespace cannot look like a single token.
+        let denseSegmentEstimate = segments.reduce(into: 0) { estimate, segment in
+            let byteCount = segment.utf8.count
+            if byteCount > Self.privateAIDenseSegmentByteThreshold {
+                estimate += (byteCount + Self.privateAIDenseBytesPerToken - 1)
+                    / Self.privateAIDenseBytesPerToken
+            } else {
+                estimate += 1
+            }
+        }
+        return max(1, max(wordBasedEstimate, denseSegmentEstimate))
     }
 
     static func privateAIMaxOutputTokens(forInputText inputText: String, contextTokenLimit: Int) -> Int {
