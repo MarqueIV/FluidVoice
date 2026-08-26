@@ -14,6 +14,7 @@ final class SettingsStore: ObservableObject {
     static let microphonePriorityMigrationVersion = 4
 
     static let shared = SettingsStore()
+    private static let automaticWhisperLanguageCode = "auto"
     static let transcriptionPreviewCharLimitRange: ClosedRange<Int> = 50...800
     static let transcriptionPreviewCharLimitStep = 50
     static let defaultTranscriptionPreviewCharLimit = 150
@@ -3202,6 +3203,7 @@ final class SettingsStore: ObservableObject {
             privateAIBackendPreference: self.privateAIBackendPreference,
             privateAIContextTokenLimit: self.privateAIContextTokenLimit,
             selectedSpeechModel: self.selectedSpeechModel,
+            selectedWhisperLanguageCode: Self.whisperLanguageBackupValue(for: self.selectedWhisperLanguageCode),
             selectedCohereLanguage: self.selectedCohereLanguage,
             selectedNemotronLanguage: self.selectedNemotronLanguage,
             selectedAppleSpeechLocaleIdentifier: self.selectedAppleSpeechLocaleIdentifier,
@@ -3324,6 +3326,9 @@ final class SettingsStore: ObservableObject {
             self.privateAIContextTokenLimit = privateAIContextTokenLimit
         }
         self.selectedSpeechModel = payload.selectedSpeechModel
+        if let selectedWhisperLanguageCode = payload.selectedWhisperLanguageCode {
+            self.selectedWhisperLanguageCode = Self.whisperLanguageCode(fromBackupValue: selectedWhisperLanguageCode)
+        }
         self.selectedCohereLanguage = payload.selectedCohereLanguage
         if let selectedNemotronLanguage = payload.selectedNemotronLanguage {
             self.selectedNemotronLanguage = selectedNemotronLanguage
@@ -5405,6 +5410,7 @@ private extension SettingsStore {
 
         /// Unified Speech Model (replaces above two)
         static let selectedSpeechModel = "SelectedSpeechModel"
+        static let selectedWhisperLanguageCode = "SelectedWhisperLanguageCode"
         static let selectedCohereLanguage = "SelectedCohereLanguage"
         static let selectedNemotronLanguage = "SelectedNemotronLanguage"
         static let selectedAppleSpeechLocaleIdentifier = "SelectedAppleSpeechLocaleIdentifier"
@@ -5732,6 +5738,31 @@ extension SettingsStore {
             let model = newValue == .nemotronStreaming320 ? SpeechModel.nemotronStreaming : newValue
             self.defaults.set(model.rawValue, forKey: Keys.selectedSpeechModel)
         }
+    }
+
+    /// The language Whisper should transcribe, or `nil` to detect it from each recording.
+    /// Existing installs keep automatic detection until the user selects a language.
+    var selectedWhisperLanguageCode: String? {
+        get {
+            Self.whisperLanguageCode(fromStoredValue: self.defaults.string(forKey: Keys.selectedWhisperLanguageCode))
+        }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue ?? Self.automaticWhisperLanguageCode, forKey: Keys.selectedWhisperLanguageCode)
+        }
+    }
+
+    static func whisperLanguageCode(fromStoredValue value: String?) -> String? {
+        guard let value, value != self.automaticWhisperLanguageCode else { return nil }
+        return VoiceEngineLanguageCatalog.whisperLanguage(forCode: value) == nil ? nil : value
+    }
+
+    static func whisperLanguageBackupValue(for languageCode: String?) -> String {
+        languageCode ?? self.automaticWhisperLanguageCode
+    }
+
+    static func whisperLanguageCode(fromBackupValue value: String) -> String? {
+        value == self.automaticWhisperLanguageCode ? nil : value
     }
 
     var selectedCohereLanguage: CohereLanguage {
