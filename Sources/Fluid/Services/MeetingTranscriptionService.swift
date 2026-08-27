@@ -4,6 +4,36 @@ import CoreMedia
 import Foundation
 import UniformTypeIdentifiers
 
+@MainActor
+final class FileTranscriptionGate {
+    private var isRunning = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func run<T>(_ operation: () async throws -> T) async rethrows -> T {
+        await self.acquire()
+        defer { self.release() }
+        return try await operation()
+    }
+
+    private func acquire() async {
+        guard self.isRunning else {
+            self.isRunning = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            self.waiters.append(continuation)
+        }
+    }
+
+    private func release() {
+        guard !self.waiters.isEmpty else {
+            self.isRunning = false
+            return
+        }
+        self.waiters.removeFirst().resume()
+    }
+}
+
 /// One speaker-attributed portion of a file transcription.
 nonisolated struct SpeakerTranscriptSegment: Identifiable, Sendable, Codable, Equatable {
     let speaker: String
@@ -323,6 +353,8 @@ nonisolated struct TranscriptionResult: Identifiable, Sendable, Codable {
 /// NOTE: This service shares the ASR models with ASRService to avoid duplicate memory usage
 @MainActor
 final class MeetingTranscriptionService: ObservableObject {
+    private static let transcriptionGate = FileTranscriptionGate()
+
     @Published var isTranscribing: Bool = false
     @Published var progress: Double = 0.0
     @Published var currentStatus: String = ""
@@ -403,6 +435,12 @@ final class MeetingTranscriptionService: ObservableObject {
     /// - Parameters:
     ///   - fileURL: URL to the audio/video file
     func transcribeFile(_ fileURL: URL) async throws -> TranscriptionResult {
+        try await Self.transcriptionGate.run {
+            try await self.transcribeFileSerially(fileURL)
+        }
+    }
+
+    private func transcribeFileSerially(_ fileURL: URL) async throws -> TranscriptionResult {
         self.isTranscribing = true
         error = nil
         self.fallbackNotice = nil
