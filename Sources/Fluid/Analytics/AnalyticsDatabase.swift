@@ -684,12 +684,15 @@ final class AnalyticsDatabase {
     }
 
     private static func onboardingTryoutDurationBucket(_ duration: TimeInterval) -> String {
-        switch max(0, duration) {
-        case ..<30: "under_30s"
-        case ..<60: "30_to_59s"
-        case ..<180: "1_to_2m"
-        default: "3m_plus"
-        }
+        let duration = max(0, duration)
+        guard duration < 30 else { return "30s_plus" }
+
+        let upperBound = max(0.5, ceil(duration * 2) / 2)
+        if upperBound == 0.5 { return "500ms" }
+
+        let wholeSeconds = Int(upperBound)
+        if upperBound == Double(wholeSeconds) { return "\(wholeSeconds)s" }
+        return "\(wholeSeconds)_5s"
     }
 
     private func insertDedupeKey(_ key: String, date: Date) throws -> Bool {

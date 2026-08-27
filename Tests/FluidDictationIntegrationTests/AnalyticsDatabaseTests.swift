@@ -174,7 +174,7 @@ final class AnalyticsDatabaseTests: XCTestCase {
         XCTAssertEqual(tryoutEvents.count, 1)
         XCTAssertEqual(tryout.properties["outcome"] as? String, "success")
         XCTAssertEqual(tryout.properties["attempt_count_bucket"] as? String, "2")
-        XCTAssertEqual(tryout.properties["duration_bucket"] as? String, "1_to_2m")
+        XCTAssertEqual(tryout.properties["duration_bucket"] as? String, "30s_plus")
         XCTAssertEqual(tryout.properties["start_method"] as? String, "button")
         XCTAssertEqual(tryout.properties["failure_stage"] as? String, "post_processing")
         XCTAssertEqual(tryout.properties["$os"] as? String, "macOS")
@@ -193,9 +193,47 @@ final class AnalyticsDatabaseTests: XCTestCase {
             try self.events(in: database).first { $0.name == AnalyticsEvent.onboardingTryoutFinished.rawValue }
         )
         XCTAssertEqual(tryout.properties["outcome"] as? String, "skipped_before_attempt")
-        XCTAssertEqual(tryout.properties["duration_bucket"] as? String, "under_30s")
+        XCTAssertEqual(tryout.properties["duration_bucket"] as? String, "10s")
         XCTAssertNil(tryout.properties["attempt_count_bucket"])
         XCTAssertNil(tryout.properties["start_method"])
+    }
+
+    func testOnboardingTryoutDurationUsesGranularSubThirtySecondBuckets() throws {
+        let cases: [(duration: TimeInterval, bucket: String)] = [
+            (0, "500ms"),
+            (0.5, "500ms"),
+            (0.501, "1s"),
+            (1, "1s"),
+            (1.001, "1_5s"),
+            (1.5, "1_5s"),
+            (1.501, "2s"),
+            (5.2, "5_5s"),
+            (10, "10s"),
+            (20.01, "20_5s"),
+            (29.9, "30s"),
+            (30, "30s_plus"),
+            (75, "30s_plus"),
+        ]
+
+        for (index, testCase) in cases.enumerated() {
+            let databaseURL = self.temporaryDirectory
+                .appendingPathComponent("analytics-duration-\(index).sqlite3")
+            let database = try self.makeDatabase(url: databaseURL)
+            let enteredAt = Date(timeIntervalSince1970: 100)
+
+            try database.recordOnboardingStepViewed(.playground, origin: .firstRun, at: enteredAt)
+            try database.skipOnboardingTryout(
+                origin: .firstRun,
+                at: enteredAt.addingTimeInterval(testCase.duration)
+            )
+
+            let tryout = try XCTUnwrap(
+                try self.events(in: database).first {
+                    $0.name == AnalyticsEvent.onboardingTryoutFinished.rawValue
+                }
+            )
+            XCTAssertEqual(tryout.properties["duration_bucket"] as? String, testCase.bucket)
+        }
     }
 
     func testOnboardingTryoutSkipAfterFailureRetainsAttemptContext() throws {
@@ -221,7 +259,7 @@ final class AnalyticsDatabaseTests: XCTestCase {
         )
         XCTAssertEqual(tryout.properties["outcome"] as? String, "skipped_after_attempt")
         XCTAssertEqual(tryout.properties["attempt_count_bucket"] as? String, "1")
-        XCTAssertEqual(tryout.properties["duration_bucket"] as? String, "30_to_59s")
+        XCTAssertEqual(tryout.properties["duration_bucket"] as? String, "30s_plus")
         XCTAssertEqual(tryout.properties["start_method"] as? String, "hotkey")
         XCTAssertEqual(tryout.properties["failure_stage"] as? String, "transcription")
     }
@@ -263,7 +301,7 @@ final class AnalyticsDatabaseTests: XCTestCase {
             try self.events(in: reopened).first { $0.name == AnalyticsEvent.onboardingTryoutFinished.rawValue }
         )
         XCTAssertEqual(tryout.properties["attempt_count_bucket"] as? String, "2")
-        XCTAssertEqual(tryout.properties["duration_bucket"] as? String, "1_to_2m")
+        XCTAssertEqual(tryout.properties["duration_bucket"] as? String, "30s_plus")
     }
 
     func testDetailedConsentGateRejectsWorkQueuedBeforeOptOut() {
