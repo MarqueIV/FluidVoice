@@ -54,6 +54,12 @@ enum AudioCaptureStartOutcome: Equatable {
     case failed
 }
 
+enum ASRStopOutcome: Equatable {
+    case success
+    case empty
+    case failed
+}
+
 // swiftlint:disable file_length type_body_length
 /// A comprehensive speech recognition service that handles real-time audio transcription.
 ///
@@ -192,6 +198,7 @@ final class ASRService: ObservableObject {
     private var microphonePreviewOperationGeneration: UInt64 = 0
     private var isMicrophonePreviewRequested = false
     private(set) var lastDictionaryTrainingResult: ASRTranscriptionResult?
+    private(set) var lastStopOutcome: ASRStopOutcome = .empty
     private(set) var dictionaryTrainingAudioGeneration = 0
 
     @Published private(set) var isStarting: Bool = false // Guard against re-entrant start() calls
@@ -2319,6 +2326,7 @@ final class ASRService: ObservableObject {
         forDictionaryTraining: Bool = false
     ) async -> String {
         DebugLogger.shared.info("🛑 STOP() called - beginning shutdown sequence", source: "ASRService")
+        self.lastStopOutcome = .empty
         if forDictionaryTraining || self.isDictionaryTrainingCaptureActive {
             self.lastDictionaryTrainingResult = nil
         }
@@ -2500,6 +2508,7 @@ final class ASRService: ObservableObject {
 
             guard provider.isReady else {
                 DebugLogger.shared.error("Transcription provider is not ready", source: "ASRService")
+                self.lastStopOutcome = .failed
                 // Resume media playback if we paused it
                 if shouldResumeMedia {
                     await MediaPlaybackService.shared.resumeIfWePaused(true)
@@ -2583,8 +2592,12 @@ final class ASRService: ObservableObject {
                 DebugLogger.shared.info("🎵 Resumed system media after transcription", source: "ASRService")
             }
 
+            self.lastStopOutcome = outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? .empty
+                : .success
             return outputText
         } catch {
+            self.lastStopOutcome = .failed
             DebugLogger.shared.error("ASR transcription failed: \(error)", source: "ASRService")
             DebugLogger.shared.error("Error details: \(error.localizedDescription)", source: "ASRService")
             let nsError = error as NSError
