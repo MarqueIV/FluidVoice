@@ -91,6 +91,20 @@ final class AudioBufferConverterTests: XCTestCase {
         XCTAssertEqual(LocalAPIAudioDecoder.maxChunkDurationSeconds, 20 * 60)
     }
 
+    func testLocalAPIExtensionlessUploadUsesTemporaryWAVAndCleansUp() async throws {
+        let expectedData = Data([0, 1, 2, 3])
+        let fileURL = try await LocalAPIAudioDecoder.temporaryFile(
+            fromAudioData: expectedData,
+            suggestedExtension: ""
+        )
+
+        XCTAssertEqual(fileURL.pathExtension, "wav")
+        XCTAssertEqual(try Data(contentsOf: fileURL), expectedData)
+
+        await LocalAPIAudioDecoder.removeTemporaryFile(at: fileURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     private func makeFloatBuffer(
         sampleRate: Double,
         channels: AVAudioChannelCount,

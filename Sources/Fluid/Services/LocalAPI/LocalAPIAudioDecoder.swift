@@ -54,36 +54,22 @@ enum LocalAPIAudioDecoder {
         }
     }
 
-    static func samples(from fileURL: URL) throws -> [Float] {
-        let file = try AVAudioFile(forReading: fileURL)
-        let sourceFormat = file.processingFormat
-        let framesToRead = file.length
-        guard framesToRead > 0 else { return [] }
-
-        guard let sourceBuffer = AVAudioPCMBuffer(
-            pcmFormat: sourceFormat,
-            frameCapacity: AVAudioFrameCount(framesToRead)
-        ) else {
-            throw NSError(domain: "LocalAPIAudioDecoder", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unable to allocate audio buffer."])
-        }
-
-        try file.read(into: sourceBuffer, frameCount: AVAudioFrameCount(framesToRead))
-        return try AudioBufferConverter.monoSamples(
-            from: sourceBuffer,
-            targetSampleRate: self.sampleRate
-        )
+    static func temporaryFile(fromAudioData data: Data, suggestedExtension: String) async throws -> URL {
+        try await Task.detached(priority: .utility) {
+            let trimmedExtension = suggestedExtension.trimmingCharacters(in: CharacterSet(charactersIn: ". \n\t"))
+            let fileExtension = trimmedExtension.isEmpty ? "wav" : trimmedExtension
+            let fileURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("fluidvoice-api-\(UUID().uuidString)")
+                .appendingPathExtension(fileExtension)
+            try data.write(to: fileURL, options: .atomic)
+            return fileURL
+        }.value
     }
 
-    static func samples(fromAudioData data: Data, suggestedExtension: String) throws -> [Float] {
-        let ext = suggestedExtension.trimmingCharacters(in: CharacterSet(charactersIn: ". \n\t")).isEmpty
-            ? "wav"
-            : suggestedExtension.trimmingCharacters(in: CharacterSet(charactersIn: ". \n\t"))
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("fluidvoice-api-\(UUID().uuidString)")
-            .appendingPathExtension(ext)
-        try data.write(to: url, options: .atomic)
-        defer { try? FileManager.default.removeItem(at: url) }
-        return try self.samples(from: url)
+    static func removeTemporaryFile(at fileURL: URL) async {
+        await Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: fileURL)
+        }.value
     }
 
     static func estimatedSampleCount(for fileURL: URL) throws -> Int {
