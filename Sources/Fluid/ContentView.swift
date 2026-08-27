@@ -2093,6 +2093,7 @@ struct ContentView: View {
         DebugLogger.shared.debug("stopAndProcessTranscription called", source: "ContentView")
         DebugLogger.shared.info("Output route selected: \(route.rawValue)", source: "ContentView")
         self.appBench("stop_path_enter route=\(route.rawValue)")
+        let isOnboardingTryout = route == .onboardingSandbox && self.isOnboardingVoicePlaygroundStepActive
 
         // Check if we're in rewrite or command mode
         let modeAtStop = self.activeRecordingMode
@@ -2157,6 +2158,16 @@ struct ContentView: View {
 
         guard transcribedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             DebugLogger.shared.debug("Transcription returned empty text", source: "ContentView")
+            if isOnboardingTryout {
+                if self.asr.lastStopOutcome == .failed {
+                    AnalyticsService.shared.recordOnboardingTryoutAttemptResult(
+                        outcome: .error,
+                        failureStage: .transcription
+                    )
+                } else {
+                    AnalyticsService.shared.recordOnboardingTryoutAttemptResult(outcome: .empty)
+                }
+            }
             // Finish the same short exit transition even when no text is emitted.
             if !didRequestOverlayHideOnStop {
                 await self.menuBarManager.finishProcessingAndHideOverlay()
@@ -2358,6 +2369,10 @@ struct ContentView: View {
            self.isOnboardingVoicePlaygroundStepActive,
            !finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         {
+            AnalyticsService.shared.finishOnboardingTryout(
+                outcome: .success,
+                failureStage: aiFallbackReason == nil ? nil : .postProcessing
+            )
             self.settings.onboardingPlaygroundValidated = true
             self.settings.playgroundUsed = true
             self.playgroundUsed = true
@@ -3666,7 +3681,13 @@ struct ContentView: View {
 
         if self.asr.isRunningOrStarting {
             DebugLogger.shared.debug("Cancel shortcut: cancelling ASR recording", source: "ContentView")
-            Task { await self.asr.stopWithoutTranscription() }
+            let isOnboardingTryout = self.isOnboardingVoicePlaygroundStepActive
+            Task {
+                await self.asr.stopWithoutTranscription()
+                if isOnboardingTryout {
+                    AnalyticsService.shared.recordOnboardingTryoutAttemptResult(outcome: .cancelled)
+                }
+            }
             self.cancelPrewarmDictationIfNeeded()
             handled = true
         }
@@ -3865,7 +3886,11 @@ extension ContentView {
         }
     }
 
-    private func beginDictationRecording(for slot: SettingsStore.DictationShortcutSlot, mode: ActiveRecordingMode) {
+    private func beginDictationRecording(
+        for slot: SettingsStore.DictationShortcutSlot,
+        mode: ActiveRecordingMode,
+        startMethod: AnalyticsOnboardingTryoutStartMethod = .hotkey
+    ) {
         DebugLogger.shared.debug("Begin dictation recording for slot \(slot.rawValue)", source: "ContentView")
         self.appBench("begin_recording slot=\(slot.rawValue) mode=\(mode.rawValue)")
         if self.isOnboardingVoicePlaygroundStepActive {
@@ -3882,6 +3907,10 @@ extension ContentView {
         guard !self.asr.isRunningOrStarting else {
             self.appBench("asr_start_skipped reason=already_running_or_starting")
             return
+        }
+        let isOnboardingTryout = self.isOnboardingVoicePlaygroundStepActive && mode == .dictate
+        if isOnboardingTryout {
+            AnalyticsService.shared.recordOnboardingTryoutAttemptStarted(startMethod: startMethod)
         }
         self.advanceOverlayLifecycle()
         if self.asr.micStatus == .authorized {
@@ -3904,6 +3933,12 @@ extension ContentView {
             })
             if startOutcome == .failed {
                 self.menuBarManager.hideRecordingOverlayImmediately(reason: "asr_start_failed")
+                if isOnboardingTryout {
+                    AnalyticsService.shared.recordOnboardingTryoutAttemptResult(
+                        outcome: .error,
+                        failureStage: .audioStart
+                    )
+                }
             }
             DebugLogger.shared.benchmark(
                 "APP_BENCH",
