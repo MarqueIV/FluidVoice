@@ -2689,6 +2689,16 @@ final class ASRService: ObservableObject {
             )
         }
 
+        if provider.prefersNativeFileTranscription,
+           estimatedSamples > 0,
+           estimatedSamples < 16_000
+        {
+            let reader = try LocalAPIAudioDecoder.ChunkReader(fileURL: fileURL)
+            let samples = try await reader.nextSamples()
+            let result = try await self.transcribeSamplesForAPI(samples)
+            return (result, sampleCount: estimatedSamples)
+        }
+
         guard provider.prefersNativeFileTranscription else {
             let reader = try LocalAPIAudioDecoder.ChunkReader(fileURL: fileURL)
             let (combinedText, confidence, processedSampleCount) = try await transcriptionExecutor.run { [provider] in
