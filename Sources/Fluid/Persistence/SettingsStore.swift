@@ -1333,6 +1333,15 @@ final class SettingsStore: ObservableObject {
         return Self.combineBasePrompt(for: normalizedMode, with: trimmedBody)
     }
 
+    /// System prompt for a dictation-shortcut prompt override, honoring
+    /// "Send Custom Prompt Only" the same way the effective-prompt paths do.
+    func shortcutOverrideSystemPrompt(for profile: DictationPromptProfile, mode: PromptMode = .dictate) -> String {
+        self.systemPrompt(
+            forCustomProfileBody: Self.stripBasePrompt(for: mode, from: profile.prompt),
+            mode: mode
+        )
+    }
+
     // MARK: - Model Reasoning Configuration
 
     /// Configuration for model-specific reasoning/thinking parameters
