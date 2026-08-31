@@ -2370,18 +2370,34 @@ struct BottomOverlayView: View {
         return "Default"
     }
 
+    private var promptSelectorBuiltInLabel: String? {
+        guard let activePromptMode else { return nil }
+        if activePromptMode.normalized == .dictate {
+            switch self.settings.dictationPromptSelection(for: self.activeDictationShortcutSlot) {
+            case .off:
+                return "Fast"
+            case .privateAI:
+                return "Cleanup"
+            case .default:
+                let hasAppOverride = self.settings.resolvedDictationPromptProfile(
+                    for: self.activeDictationShortcutSlot,
+                    appBundleID: self.promptResolutionBundleID
+                ) != nil
+                return hasAppOverride ? nil : "Cleanup"
+            case .profile:
+                return nil
+            }
+        }
+
+        return self.settings.resolvedPromptProfile(
+            for: activePromptMode,
+            appBundleID: self.promptResolutionBundleID
+        ) == nil ? "Cleanup" : nil
+    }
+
     private var promptSelectorDisplayLabel: String {
         let selectedLabel = self.selectedPromptLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        let label: String
-        if selectedLabel.caseInsensitiveCompare("Off") == .orderedSame {
-            label = "Fast"
-        } else if selectedLabel.caseInsensitiveCompare("Default") == .orderedSame {
-            label = "Cleanup"
-        } else if selectedLabel.caseInsensitiveCompare(PrivateAIProviderFeature.displayName) == .orderedSame {
-            label = "Cleanup"
-        } else {
-            label = selectedLabel
-        }
+        let label = self.promptSelectorBuiltInLabel ?? selectedLabel
         guard !label.isEmpty else { return "Default" }
 
         let maxLength: Int
@@ -2397,10 +2413,10 @@ struct BottomOverlayView: View {
     }
 
     private var promptSelectorIconName: String {
-        switch self.promptSelectorDisplayLabel {
-        case "Fast":
+        switch self.promptSelectorBuiltInLabel {
+        case "Fast"?:
             return "bolt.fill"
-        case "Cleanup":
+        case "Cleanup"?:
             return "sparkles"
         default:
             return "wand.and.stars"
