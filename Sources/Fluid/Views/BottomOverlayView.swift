@@ -1508,6 +1508,9 @@ private struct BottomOverlayPromptMenuView: View {
             Text(shortcut)
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.58))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 82)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
                 .background(
@@ -1518,7 +1521,6 @@ private struct BottomOverlayPromptMenuView: View {
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
                         .stroke(Color.white.opacity(0.12), lineWidth: 1)
                 )
-                .fixedSize()
         }
     }
 
@@ -2810,9 +2812,9 @@ struct BottomOverlayView: View {
                 .font(.system(size: max(self.promptSelectorFontSize - 1, 8), weight: .semibold))
                 .foregroundStyle(.white.opacity(0.45))
         }
-        .fixedSize(horizontal: true, vertical: false)
         .padding(.horizontal, 7)
         .padding(.vertical, self.promptSelectorVerticalPadding)
+        .frame(maxWidth: self.promptSelectorChipWidth, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: self.promptSelectorCornerRadius, style: .continuous)
                 .fill(
