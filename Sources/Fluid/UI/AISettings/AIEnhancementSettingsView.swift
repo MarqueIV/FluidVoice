@@ -100,10 +100,6 @@ struct AIEnhancementSettingsView: View {
                 self.viewModel.onAppear()
                 self.privateAISelectedModelID = PrivateAIIntegrationService.configuredModelID
                 self.refreshPrivateAILoadState()
-                if PrivateAIMLXUpgradeCoordinator.isUpgradePending() {
-                    self.selectedConfigurationSection = .providers
-                    self.expandedProviderID = PrivateAIProviderFeature.shared.providerID
-                }
             }
             .onChange(of: self.viewModel.connectionStatus) { oldValue, newValue in
                 if oldValue == .success && newValue != .success {

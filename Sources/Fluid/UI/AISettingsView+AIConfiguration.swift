@@ -965,39 +965,21 @@ extension AIEnhancementSettingsView {
                 guard self.privateAISelectedModelID == model.id else { return }
                 if verified {
                     self.privateAILoadState = .loaded(modelID: model.id, latencyMilliseconds: latencyMilliseconds)
-                    if PrivateAIMLXUpgradeCoordinator.isUpgradePending() {
-                        PrivateAIMLXUpgradeCoordinator.completeUpgrade()
-                        await PrivateAIIntegrationService.shared.removeInactiveInstalledModels(keeping: model)
-                    }
                 } else {
                     let message = self.viewModel.connectionErrorMessage.isEmpty
                         ? "Model downloaded, but verification failed."
                         : self.viewModel.connectionErrorMessage
-                    self.restoreLlamaAfterFailedMLXUpgrade(message: message, modelID: model.id)
+                    self.privateAILoadState = .failed(modelID: model.id, message: message)
                 }
             } catch {
                 guard self.privateAISelectedModelID == model.id else { return }
-                self.restoreLlamaAfterFailedMLXUpgrade(
-                    message: Self.errorMessage(for: error),
-                    modelID: model.id
+                self.privateAILoadState = .failed(
+                    modelID: model.id,
+                    message: Self.errorMessage(for: error)
                 )
             }
             self.viewModel.refreshProviderItems()
         }
-    }
-
-    private func restoreLlamaAfterFailedMLXUpgrade(message: String, modelID: String) {
-        guard PrivateAIMLXUpgradeCoordinator.isUpgradePending() else {
-            self.privateAILoadState = .failed(modelID: modelID, message: message)
-            return
-        }
-
-        PrivateAIMLXUpgradeCoordinator.restorePreviousLlama()
-        self.viewModel.onAppear()
-        self.privateAILoadState = .failed(
-            modelID: modelID,
-            message: "MLX upgrade failed. Your previous llama.cpp model is still active. \(message)"
-        )
     }
 
     private func verifyPrivateAIConnection(_ model: PrivateAIRegisteredModel) {
