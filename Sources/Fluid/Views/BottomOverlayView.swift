@@ -2403,7 +2403,9 @@ struct BottomOverlayView: View {
         guard !label.isEmpty else { return "Default" }
 
         let maxLength: Int
-        if self.isCompactControls {
+        if self.promptSelectorBuiltInLabel == nil {
+            maxLength = 11
+        } else if self.isCompactControls {
             maxLength = self.isAppPromptOverrideActive ? 8 : 14
         } else {
             maxLength = self.isAppPromptOverrideActive ? 11 : 16
@@ -2414,14 +2416,14 @@ struct BottomOverlayView: View {
         return "\(label.prefix(prefixLength))..."
     }
 
-    private var promptSelectorIconName: String {
+    private var promptSelectorIconName: String? {
         switch self.promptSelectorBuiltInLabel {
         case "Fast"?:
             return "bolt.fill"
         case "Cleanup"?:
             return "sparkles"
         default:
-            return "wand.and.stars"
+            return nil
         }
     }
 
@@ -2789,9 +2791,11 @@ struct BottomOverlayView: View {
 
     private var promptSelectorTrigger: some View {
         HStack(spacing: 5) {
-            Image(systemName: self.promptSelectorIconName)
-                .font(.system(size: max(self.promptSelectorFontSize - 1, 9), weight: .semibold))
-                .foregroundStyle(.white.opacity(0.72))
+            if let promptSelectorIconName = self.promptSelectorIconName {
+                Image(systemName: promptSelectorIconName)
+                    .font(.system(size: max(self.promptSelectorFontSize - 1, 9), weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.72))
+            }
             Text(self.promptSelectorDisplayLabel)
                 .font(.system(size: self.promptSelectorFontSize, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.82))
