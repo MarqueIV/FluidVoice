@@ -1616,7 +1616,6 @@ extension AIEnhancementSettingsView {
         let isFluidDownloading = self.privateAILoadState.isDownloading(fluidModel.id)
         let fluidDownloadProgress = self.privateAILoadState.downloadProgress(for: fluidModel.id)
         let isFluidLoading = self.privateAILoadState.isLoading(fluidModel.id)
-        let isFluidLoaded = self.privateAILoadState.isLoaded(fluidModel.id)
         let hasFluidLoadFailure = self.privateAILoadState.failureMessage(for: fluidModel.id) != nil
         let isFluidVerified = self.isPrivateAIModelVerified(fluidModel)
         let isFluidTesting = self.viewModel.isTestingConnection && self.viewModel.selectedProviderID == PrivateAIProviderFeature.shared.providerID
@@ -1641,20 +1640,12 @@ extension AIEnhancementSettingsView {
                     Text(item.name)
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(self.theme.palette.primaryText)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
                     Image(systemName: "checkmark.seal.fill")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Color.fluidGreen)
-
-                    if isSelected {
-                        Text("Active")
-                            .font(.caption2)
-                            .fontWeight(.semibold)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Capsule().fill(Color.fluidGreen.opacity(0.2)))
-                            .foregroundStyle(Color.fluidGreen)
-                    }
                 }
 
                 Spacer()
@@ -1738,7 +1729,7 @@ extension AIEnhancementSettingsView {
                 .fixedSize(horizontal: true, vertical: false)
             }
 
-            if isPrivateAIProvider, isFluidDownloading || isFluidLoading || isFluidLoaded || hasFluidLoadFailure || isFluidVerified || !isFluidInstalled {
+            if isPrivateAIProvider, isFluidDownloading || isFluidLoading || hasFluidLoadFailure || !isFluidInstalled {
                 self.privateAIModelStatusRow(
                     status: fluidStatus,
                     progress: fluidDownloadProgress,
