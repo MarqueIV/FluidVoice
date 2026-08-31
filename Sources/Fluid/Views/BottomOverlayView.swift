@@ -2436,10 +2436,6 @@ struct BottomOverlayView: View {
         max(self.promptSelectorFontSize - 1, 8)
     }
 
-    private var promptSelectorChipWidth: CGFloat {
-        self.isCompactControls ? 118 : 164
-    }
-
     private var promptSelectorVerticalPadding: CGFloat {
         4
     }
@@ -2818,7 +2814,6 @@ struct BottomOverlayView: View {
         }
         .padding(.horizontal, 7)
         .padding(.vertical, self.promptSelectorVerticalPadding)
-        .frame(maxWidth: self.promptSelectorChipWidth, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: self.promptSelectorCornerRadius, style: .continuous)
                 .fill(
