@@ -183,20 +183,24 @@ struct SettingsView: View {
                 .padding(.leading, 30)
             Spacer()
             Picker("", selection: self.dictationPromptSelectionBinding(for: slot)) {
-                Text("Off").tag("__OFF__")
-                Text("Default").tag("__DEFAULT__").disabled(privateAILocked)
-                if PrivateFeatures.privateAIProvider {
-                    Text(PrivateAIProviderFeature.displayName)
-                        .tag(PrivateAIProviderPromptFormat.promptSelectionID)
-                        .disabled(!privateAILocked)
+                Section("ON-DEVICE") {
+                    Text("Fast — No cleanup").tag("__OFF__")
+                    if PrivateFeatures.privateAIProvider {
+                        Text("Cleanup — Fluid-1")
+                            .tag(PrivateAIProviderPromptFormat.promptSelectionID)
+                            .disabled(!privateAILocked)
+                    }
                 }
-                ForEach(profiles) { profile in
-                    Text(profile.name.isEmpty ? "Untitled" : profile.name)
-                        .tag(profile.id)
-                        .disabled(privateAILocked)
+                Section("EXTERNAL") {
+                    Text("Cleanup").tag("__DEFAULT__").disabled(privateAILocked)
+                    ForEach(profiles) { profile in
+                        Text(profile.name.isEmpty ? "Untitled" : profile.name)
+                            .tag(profile.id)
+                            .disabled(privateAILocked)
+                    }
                 }
             }
-            .frame(width: 190)
+            .frame(width: 220)
         }
         .padding(.bottom, 4)
     }

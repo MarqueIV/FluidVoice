@@ -37,7 +37,7 @@ enum AIProcessingError: LocalizedError {
         }
     }
 
-    /// Configuration errors the user can fix in AI Enhancement settings.
+    /// Configuration errors the user can fix in AI Providers.
     var isConfigurationError: Bool {
         switch self {
         case .noVerifiedProvider, .missingAPIKey, .missingModel:
@@ -1214,7 +1214,8 @@ struct ContentView: View {
         List(selection: self.$selectedSidebarItem) {
             Section {
                 self.sidebarNavigationLink(.voiceEngine, title: "Voice Engine", systemImage: "waveform")
-                self.sidebarNavigationLink(.aiEnhancements, title: "AI Enhancement", systemImage: "brain")
+                self.sidebarNavigationLink(.aiEnhancements, title: "AI Providers", systemImage: "cpu")
+                self.sidebarNavigationLink(.cleanupStyles, title: "Cleanup Styles", systemImage: "wand.and.stars")
                 self.sidebarNavigationLink(.customDictionary, title: "Custom Dictionary", systemImage: "text.book.closed.fill")
             } header: {
                 self.sidebarSectionHeader("Configure")
@@ -1545,10 +1546,11 @@ struct ContentView: View {
                 appServices: self.appServices,
                 theme: self.theme
             ))
-        case .aiEnhancements:
+        case .aiEnhancements, .cleanupStyles:
             return AnyView(AIEnhancementSettingsScreen(
                 menuBarManager: self.menuBarManager,
                 theme: self.theme,
+                selectedConfigurationSection: self.aiEnhancementConfigurationSectionBinding,
                 activeShortcutRecordingTarget: self.$activeShortcutRecordingTarget,
                 shortcutRecordingMessage: self.$shortcutRecordingMessage
             ))
@@ -1569,6 +1571,18 @@ struct ContentView: View {
         case .history:
             return AnyView(TranscriptionHistoryView())
         }
+    }
+
+    private var aiEnhancementConfigurationSectionBinding: Binding<AIEnhancementConfigurationSection> {
+        Binding(
+            get: {
+                self.selectedSidebarItem?.aiEnhancementConfigurationSection ?? .providers
+            },
+            set: { section in
+                guard self.selectedSidebarItem != section.sidebarItem else { return }
+                self.navigateToApp(section.sidebarItem)
+            }
+        )
     }
 
     private var onboardingOnlyView: some View {
@@ -2609,7 +2623,7 @@ struct ContentView: View {
                    aiError.isConfigurationError
                 {
                     NotificationService.showAIProcessingFallback(
-                        error: "\(aiError.localizedDescription). Open AI Enhancement settings to configure a provider."
+                        error: "\(aiError.localizedDescription). Open AI Providers to configure a provider."
                     )
                 } else {
                     NotificationService.showAIProcessingFallback(error: error.localizedDescription)
@@ -4718,6 +4732,8 @@ private enum SidebarSymbolCache {
     private static let symbolNames = [
         "waveform",
         "brain",
+        "cpu",
+        "wand.and.stars",
         "text.book.closed.fill",
         "terminal.fill",
         "doc.text.fill",

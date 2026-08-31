@@ -336,7 +336,7 @@ struct OnboardingAIEnhancementStepView: View {
         if self.shouldShowTryout {
             return "Try it below before finishing setup."
         }
-        return "You can change this later in AI Enhancement settings."
+        return "You can change this later in AI Providers."
     }
 
     private func playgroundSection(containerWidth: CGFloat) -> some View {
