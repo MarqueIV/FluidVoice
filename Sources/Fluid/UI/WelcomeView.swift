@@ -157,7 +157,7 @@ struct WelcomeView: View {
                                     action: {
                                         self.selectedSidebarItem = .aiEnhancements
                                     },
-                                    actionButtonTitle: "Configure AI"
+                                    actionButtonTitle: "AI Providers"
                                 )
 
                                 SetupStepView(
@@ -508,14 +508,14 @@ struct WelcomeView: View {
 
                 Spacer()
 
-                Button("Open AI Settings") {
+                Button("Open AI Providers") {
                     self.selectedSidebarItem = .aiEnhancements
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
             }
 
-            Label("Configure an AI model provider in AI Settings before using Edit Mode.", systemImage: "info.circle")
+            Label("Configure an AI model provider in AI Providers before using Edit Mode.", systemImage: "info.circle")
                 .font(self.theme.typography.caption)
                 .foregroundStyle(.secondary)
 

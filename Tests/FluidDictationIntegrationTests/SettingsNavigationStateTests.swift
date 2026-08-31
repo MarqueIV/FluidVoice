@@ -53,6 +53,16 @@ final class SettingsNavigationStateTests: XCTestCase {
         XCTAssertFalse(state.isLeaving(.dictation, for: .dictation))
     }
 
+    func testAIProviderAndCleanupRoutesMapToSeparateSections() {
+        XCTAssertEqual(SidebarItem.aiEnhancements.aiEnhancementConfigurationSection, .providers)
+        XCTAssertEqual(SidebarItem.cleanupStyles.aiEnhancementConfigurationSection, .advancedPrompts)
+    }
+
+    func testUnrelatedRoutesDoNotSelectAIConfigurationSections() {
+        XCTAssertNil(SidebarItem.voiceEngine.aiEnhancementConfigurationSection)
+        XCTAssertNil(SidebarItem.customDictionary.aiEnhancementConfigurationSection)
+    }
+
     func testInactiveSettingsSearchResignsFirstResponder() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 240, height: 80),

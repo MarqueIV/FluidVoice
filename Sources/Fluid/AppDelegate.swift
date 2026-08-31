@@ -238,7 +238,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     private func showMLXUpgradeOffer() {
         let alert = NSAlert()
         alert.messageText = "Fluid-1 is now 2.2x faster"
-        alert.informativeText = "A new 3.77 GB MLX model is available for Apple silicon. Continue to AI Enhancement to download and verify it. Your current slower model will keep working unless you choose to upgrade."
+        alert.informativeText = "A new 3.77 GB MLX model is available for Apple silicon. Continue to AI Providers to download and verify it. Your current slower model will keep working unless you choose to upgrade."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Continue to Download")
         alert.addButton(withTitle: "Keep Current Model")

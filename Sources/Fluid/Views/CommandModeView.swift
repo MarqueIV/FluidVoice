@@ -489,7 +489,7 @@ struct CommandModeView: View {
 
                     Spacer(minLength: 8)
 
-                    Button("AI Settings") {
+                    Button("AI Providers") {
                         AppNavigationRouter.shared.request(.aiEnhancements)
                     }
                     .font(.caption)
@@ -515,7 +515,7 @@ struct CommandModeView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: true, vertical: false)
-                        .help("Use the same provider and model selected in AI Enhancement.")
+                        .help("Use the same provider and model selected in AI Providers.")
 
                     SearchableProviderPicker(
                         builtInProviders: self.verifiedBuiltInProvidersList,
