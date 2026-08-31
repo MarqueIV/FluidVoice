@@ -2797,6 +2797,10 @@ struct BottomOverlayView: View {
                 .foregroundStyle(.white.opacity(0.82))
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .frame(
+                    maxWidth: self.promptSelectorBuiltInLabel == nil ? 72 : nil,
+                    alignment: .leading
+                )
             if self.isAppPromptOverrideActive {
                 Text("App")
                     .font(.system(size: max(self.promptSelectorFontSize - 2, 8), weight: .semibold))
