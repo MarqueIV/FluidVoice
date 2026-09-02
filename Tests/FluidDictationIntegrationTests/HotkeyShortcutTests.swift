@@ -19,6 +19,12 @@ final class HotkeyShortcutTests: XCTestCase {
     private let experimentalDirectAudioCaptureEnabledKey = "ExperimentalDirectAudioCaptureEnabled"
     private let incrementalParakeetEnabledKey = "ExperimentalParakeetUnifiedFinalEnabled"
 
+    func testHotkeySessionLockDetection() {
+        XCTAssertTrue(GlobalHotkeyManager.sessionIsLocked(sessionInfo: ["CGSSessionScreenIsLocked": true]))
+        XCTAssertFalse(GlobalHotkeyManager.sessionIsLocked(sessionInfo: ["CGSSessionScreenIsLocked": false]))
+        XCTAssertFalse(GlobalHotkeyManager.sessionIsLocked(sessionInfo: [:]))
+    }
+
     @MainActor
     func testBottomOverlayRapidStopStartStopDoesNotDropFinalHide() async {
         let audioPublisher = Just(CGFloat.zero).eraseToAnyPublisher()
