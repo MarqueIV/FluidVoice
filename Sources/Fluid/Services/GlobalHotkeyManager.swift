@@ -698,6 +698,14 @@ final class GlobalHotkeyManager: NSObject {
         self.clearPrimaryShortcutPressState()
     }
 
+    nonisolated static func sessionIsLocked(sessionInfo: [String: Any]) -> Bool {
+        sessionInfo["CGSSessionScreenIsLocked"] as? Bool ?? false
+    }
+
+    private nonisolated static func currentSessionIsLocked() -> Bool {
+        self.sessionIsLocked(sessionInfo: CGSessionCopyCurrentDictionary() as? [String: Any] ?? [:])
+    }
+
     private nonisolated func clearPrimaryShortcutPressState() {
         let task = self.state.withLock { () -> Task<Void, Never>? in
             guard self.state.activePrimaryShortcutPress != nil || self.state.isKeyPressed else { return nil }
@@ -1897,6 +1905,10 @@ final class GlobalHotkeyManager: NSObject {
     }
 
     private func canTriggerRecordingAction(_ label: String) -> Bool {
+        guard !Self.currentSessionIsLocked() else {
+            DebugLogger.shared.info("Ignoring \(label) - screen is locked", source: "GlobalHotkeyManager")
+            return false
+        }
         guard !self.isProcessingStop else {
             DebugLogger.shared.debug("Ignoring \(label) - stop already processing", source: "GlobalHotkeyManager")
             return false
