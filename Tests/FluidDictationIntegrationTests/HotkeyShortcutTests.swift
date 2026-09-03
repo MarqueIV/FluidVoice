@@ -108,6 +108,12 @@ final class HotkeyShortcutTests: XCTestCase {
         XCTAssertFalse(MicrophoneChangeOverlayController.supportsAlerts(bundleIdentifier: nil))
     }
 
+    func testInterruptedMousePressForceStopsHoldAndAutomaticModes() {
+        XCTAssertTrue(GlobalHotkeyManager.shouldForceStopInterruptedPrimaryPress(activationMode: .hold))
+        XCTAssertTrue(GlobalHotkeyManager.shouldForceStopInterruptedPrimaryPress(activationMode: .automatic))
+        XCTAssertFalse(GlobalHotkeyManager.shouldForceStopInterruptedPrimaryPress(activationMode: .toggle))
+    }
+
     func testHotkeySessionLockDetection() {
         XCTAssertTrue(GlobalHotkeyManager.sessionIsLocked(sessionInfo: ["CGSSessionScreenIsLocked": true]))
         XCTAssertFalse(GlobalHotkeyManager.sessionIsLocked(sessionInfo: ["CGSSessionScreenIsLocked": false]))

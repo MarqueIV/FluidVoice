@@ -1073,15 +1073,29 @@ final class GlobalHotkeyManager: NSObject {
     }
 
     private func finishInterruptedMouseShortcutPress(reason: String) {
-        guard case let .mouse(mouseButton)? = self.activePrimaryShortcutPress,
-              self.finishPrimaryShortcutPress(.mouse(mouseButton))
-        else { return }
+        guard case .mouse? = self.activePrimaryShortcutPress else { return }
+
+        self.clearPrimaryShortcutPressState(mouseOnly: true)
 
         DebugLogger.shared.warning(
             "Finishing active mouse shortcut press before \(reason)",
             source: "GlobalHotkeyManager"
         )
-        self.handlePrimaryDictationTriggerUp()
+
+        guard Self.shouldForceStopInterruptedPrimaryPress(activationMode: self.hotkeyMode) else { return }
+        if self.asrService.isRunningOrStarting {
+            self.stopRecordingIfNeeded()
+        } else {
+            self.stopRecordingAfterRelease(
+                for: .transcription,
+                label: "Interrupted mouse shortcut",
+                requireTargetMode: false
+            )
+        }
+    }
+
+    nonisolated static func shouldForceStopInterruptedPrimaryPress(activationMode: HotkeyActivationMode) -> Bool {
+        activationMode != .toggle
     }
 
     private func finishPrimaryShortcutPress(_ press: ActivePrimaryShortcutPress) -> Bool {
@@ -1731,7 +1745,11 @@ final class GlobalHotkeyManager: NSObject {
         }
     }
 
-    private func stopRecordingAfterRelease(for type: HotkeyHoldModeType, label: String) {
+    private func stopRecordingAfterRelease(
+        for type: HotkeyHoldModeType,
+        label: String,
+        requireTargetMode: Bool = true
+    ) {
         if self.asrService.isRunning {
             self.cancelPendingReleaseStop(for: type)
             self.stopRecordingIfNeeded()
@@ -1751,7 +1769,7 @@ final class GlobalHotkeyManager: NSObject {
                 guard self.isPendingReleaseStopCurrent(for: type, token: token) else { return }
 
                 if self.asrService.isRunning {
-                    guard self.isRecordingTargetActive(for: type) else {
+                    guard !requireTargetMode || self.isRecordingTargetActive(for: type) else {
                         DebugLogger.shared.debug("\(label) deferred stop skipped - active mode changed", source: "GlobalHotkeyManager")
                         self.clearPendingReleaseStop(for: type, token: token)
                         return
