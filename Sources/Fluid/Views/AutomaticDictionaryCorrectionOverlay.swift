@@ -243,6 +243,10 @@ final class MicrophoneChangeOverlayController {
     static let shared = MicrophoneChangeOverlayController()
 
     private static let displayDurationNanoseconds: UInt64 = 5_000_000_000
+    private static let supportedBundleIdentifiers = [
+        "com.FluidApp.app",
+        "com.FluidApp.app.debug",
+    ]
     private var panel: NSPanel?
     private var hostingView: NSHostingView<MicrophoneChangeOverlayView>?
     private var dismissTask: Task<Void, Never>?
@@ -251,7 +255,7 @@ final class MicrophoneChangeOverlayController {
     private init() {}
 
     func show(_ notice: MicrophoneChangeNotice) {
-        guard Bundle.main.bundleIdentifier == "com.FluidApp.app",
+        guard Self.supportsAlerts(bundleIdentifier: Bundle.main.bundleIdentifier),
               SettingsStore.shared.showMicrophoneChangeAlerts
         else { return }
         self.generation &+= 1
@@ -298,6 +302,11 @@ final class MicrophoneChangeOverlayController {
             else { return }
             self.hide()
         }
+    }
+
+    nonisolated static func supportsAlerts(bundleIdentifier: String?) -> Bool {
+        guard let bundleIdentifier else { return false }
+        return self.supportedBundleIdentifiers.contains(bundleIdentifier)
     }
 
     func disableFutureAlerts() {
