@@ -474,8 +474,8 @@ struct ContentView: View {
                 self.handleRewriteShortcutEnabledChange(newValue)
             }
             .onChange(of: self.pasteLastTranscriptionHotkeyShortcut) { _, newValue in
-                // The hotkey manager reads this value live from SettingsStore, so persisting is enough.
                 SettingsStore.shared.pasteLastTranscriptionHotkeyShortcut = newValue
+                self.hotkeyManager?.refreshMouseShortcutTapIfNeeded()
             }
             .onChange(of: self.isPasteLastTranscriptionShortcutEnabled) { newValue in
                 self.handlePasteLastTranscriptionShortcutEnabledChange(newValue)
@@ -484,6 +484,7 @@ struct ContentView: View {
 
     private func handlePasteLastTranscriptionShortcutEnabledChange(_ isEnabled: Bool) {
         SettingsStore.shared.pasteLastTranscriptionShortcutEnabled = isEnabled
+        self.hotkeyManager?.refreshMouseShortcutTapIfNeeded()
         if !isEnabled, self.activeShortcutRecordingTarget == .pasteLast {
             self.clearShortcutRecordingMode()
         }
