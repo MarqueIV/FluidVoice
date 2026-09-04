@@ -7,7 +7,7 @@ import SwiftUI
 final class DictionaryCorrectionOverlayController {
     static let shared = DictionaryCorrectionOverlayController()
 
-    private static let displayDurationNanoseconds: UInt64 = 5_000_000_000
+    private static let displayDurationNanoseconds: UInt64 = 10_000_000_000
     private static let successDurationNanoseconds: UInt64 = 1_400_000_000
     private static let presentationDuration: TimeInterval = 0.05
     private static let dismissalDuration: TimeInterval = 0.05
@@ -36,7 +36,6 @@ final class DictionaryCorrectionOverlayController {
         onOutcome: @escaping (AutomaticDictionarySuggestionOutcome) -> Void
     ) {
         self.generation &+= 1
-        let currentGeneration = self.generation
         self.dismissTask?.cancel()
         self.session?.cancel()
         self.outcomeHandler = onOutcome
@@ -59,6 +58,18 @@ final class DictionaryCorrectionOverlayController {
             displayDuration: Double(Self.displayDurationNanoseconds) / 1_000_000_000,
             onDismiss: { [weak self] in
                 self?.dismiss()
+            },
+            onIgnore: { [weak self] in
+                self?.reportOutcome(.ignored)
+                self?.hide()
+            },
+            onFrequencyChange: { [weak self] frequency in
+                SettingsStore.shared.automaticDictionarySuggestionFrequency = frequency
+                self?.scheduleChoiceDismissal()
+            },
+            onDisableSuggestions: { [weak self] in
+                SettingsStore.shared.automaticDictionaryLearningEnabled = false
+                self?.hide()
             }
         )
 
@@ -86,6 +97,12 @@ final class DictionaryCorrectionOverlayController {
             panel.animator().alphaValue = 1
         }
 
+        self.scheduleChoiceDismissal()
+    }
+
+    private func scheduleChoiceDismissal() {
+        self.keepVisible()
+        let currentGeneration = self.generation
         self.dismissTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: Self.displayDurationNanoseconds)
             guard !Task.isCancelled,
@@ -603,6 +620,9 @@ private struct AutomaticDictionaryCorrectionOverlayView: View {
 
     let displayDuration: TimeInterval
     let onDismiss: () -> Void
+    let onIgnore: () -> Void
+    let onFrequencyChange: (SettingsStore.AutomaticDictionarySuggestionFrequency) -> Void
+    let onDisableSuggestions: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isDismissHovered = false
@@ -672,9 +692,46 @@ private struct AutomaticDictionaryCorrectionOverlayView: View {
                     accent: self.accent,
                     action: self.session.addOnlyCorrection
                 )
+
+                self.moreOptionsMenu
             }
         }
         .transition(.opacity)
+    }
+
+    private var moreOptionsMenu: some View {
+        Menu {
+            Button("Ignore This Correction", systemImage: "eye.slash", action: self.onIgnore)
+
+            Menu("Suggest After") {
+                ForEach(SettingsStore.AutomaticDictionarySuggestionFrequency.allCases) { frequency in
+                    Button {
+                        self.onFrequencyChange(frequency)
+                        self.startProgressAnimation()
+                    } label: {
+                        if self.settings.automaticDictionarySuggestionFrequency == frequency {
+                            Label(frequency.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(frequency.displayName)
+                        }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button("Turn Off Auto-Learn", role: .destructive, action: self.onDisableSuggestions)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(width: 36, height: 36)
+                .background(self.panelSurface)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More correction options")
     }
 
     private var trainingContent: some View {

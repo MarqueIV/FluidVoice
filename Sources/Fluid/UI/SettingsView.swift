@@ -159,13 +159,11 @@ struct SettingsView: View {
                 case "__OFF__":
                     self.settings.setDictationPromptSelection(.off, for: slot)
                 case "__DEFAULT__":
-                    guard !PrivateAIProviderPromptFormat.isAvailable(settings: self.settings) else { return }
                     self.settings.setDictationPromptSelection(.default, for: slot)
                 case PrivateAIProviderPromptFormat.promptSelectionID:
                     guard PrivateAIProviderPromptFormat.isAvailable(settings: self.settings) else { return }
                     self.settings.setDictationPromptSelection(.privateAI, for: slot)
                 default:
-                    guard !PrivateAIProviderPromptFormat.isAvailable(settings: self.settings) else { return }
                     self.settings.setDictationPromptSelection(.profile(newValue), for: slot)
                 }
             }
@@ -175,7 +173,7 @@ struct SettingsView: View {
     @ViewBuilder
     private func dictationPromptPicker(for slot: SettingsStore.DictationShortcutSlot) -> some View {
         let profiles = self.settings.promptProfiles(for: .dictate)
-        let privateAILocked = PrivateAIProviderPromptFormat.isAvailable(settings: self.settings)
+        let privateAIAvailable = PrivateAIProviderPromptFormat.isAvailable(settings: self.settings)
         HStack {
             Text("AI Prompt")
                 .font(self.theme.typography.bodySmall)
@@ -188,15 +186,14 @@ struct SettingsView: View {
                     if PrivateFeatures.privateAIProvider {
                         Text("Cleanup — Fluid-1")
                             .tag(PrivateAIProviderPromptFormat.promptSelectionID)
-                            .disabled(!privateAILocked)
+                            .disabled(!privateAIAvailable)
                     }
                 }
                 Section("EXTERNAL") {
-                    Text("Cleanup").tag("__DEFAULT__").disabled(privateAILocked)
+                    Text("Cleanup").tag("__DEFAULT__")
                     ForEach(profiles) { profile in
                         Text(profile.name.isEmpty ? "Untitled" : profile.name)
                             .tag(profile.id)
-                            .disabled(privateAILocked)
                     }
                 }
             }
@@ -962,6 +959,10 @@ struct SettingsView: View {
                                     .settingsSearchTarget(.pauseMedia)
                                     Divider().opacity(0.2)
 
+                                    DictionarySuggestionsSettingsRow()
+                                        .settingsSearchTarget(.dictionarySuggestions)
+                                    Divider().opacity(0.2)
+
                                     self.optionToggleRow(
                                         title: "Share Detailed Anonymous Analytics",
                                         description: "Share anonymous daily feature, onboarding, and model metrics. " +
@@ -1110,10 +1111,6 @@ struct SettingsView: View {
                 // Notification Settings Card
                 ThemedCard(style: .standard) {
                     VStack(alignment: .leading, spacing: 14) {
-                        Label("Notifications", systemImage: "bell.fill")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-
                         VStack(alignment: .leading, spacing: 12) {
                             self.optionToggleRow(
                                 title: "AI Enhancement Failures",
@@ -1256,10 +1253,6 @@ struct SettingsView: View {
                 // Overlay Settings Card
                 ThemedCard(style: .standard) {
                     VStack(alignment: .leading, spacing: 14) {
-                        Label("Overlay", systemImage: "rectangle.on.rectangle")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-
                         VStack(alignment: .leading, spacing: 12) {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -1530,12 +1523,6 @@ struct SettingsView: View {
 
                 ThemedCard(style: .standard) {
                     VStack(alignment: .leading, spacing: 14) {
-                        HStack(spacing: 8) {
-                            Label("Experimental", systemImage: "flask.fill")
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                        }
-
                         self.settingsToggleRow(
                             title: "Faster Long Dictation",
                             description: "For long recordings, reuse completed live windows and process only the remaining tail when you stop.",
@@ -1545,11 +1532,23 @@ struct SettingsView: View {
                                 set: { SettingsStore.shared.experimentalParakeetUnifiedFinalEnabled = $0 }
                             )
                         )
+
+                        Divider().padding(.vertical, 4)
+
+                        self.settingsToggleRow(
+                            title: "Show Performance in History",
+                            description: "Display transcription time, cleanup time, and Fluid Intelligence speed.",
+                            isOn: Binding(
+                                get: { SettingsStore.shared.showHistoryPerformanceMetrics },
+                                set: { SettingsStore.shared.showHistoryPerformanceMetrics = $0 }
+                            )
+                        )
+                        .settingsSearchTarget(.historyPerformance)
                     }
                     .padding(16)
                 }
                 .settingsSearchTarget(.fasterLongDictation)
-                .shownInSettingsSection(.dataAndDiagnostics, selectedSection: self.selectedSection)
+                .shownInSettingsSection(.experimental, selectedSection: self.selectedSection)
             }
             .padding(16)
             .environment(\.settingsSearchPresentation, self.settingsSearchPresentation)
@@ -2593,7 +2592,7 @@ private extension SettingsView {
             await self.prepareAudioSettings()
         case .dictation:
             await self.refreshAudioHistoryUsageInBackground()
-        case .notifications, .overlay, .dataAndDiagnostics:
+        case .notifications, .overlay, .dataAndDiagnostics, .experimental:
             break
         }
     }
@@ -2926,6 +2925,48 @@ private extension SettingsView {
                 }
                 .padding(.leading, 12)
             }
+        }
+    }
+}
+
+private struct DictionarySuggestionsSettingsRow: View {
+    @Environment(\.theme) private var theme
+    @ObservedObject private var settings = SettingsStore.shared
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Auto-Learn Corrections")
+                    .font(self.theme.typography.bodyStrong)
+                    .foregroundStyle(self.theme.palette.primaryText)
+                Text("Suggest saving words after you correct dictated text.")
+                    .font(self.theme.typography.bodySmall)
+                    .foregroundStyle(self.theme.palette.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Picker("Suggest after", selection: self.$settings.automaticDictionarySuggestionFrequency) {
+                ForEach(SettingsStore.AutomaticDictionarySuggestionFrequency.allCases) { frequency in
+                    Text(frequency.displayName).tag(frequency)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 138)
+            .disabled(!self.settings.automaticDictionaryLearningEnabled)
+
+            Toggle("", isOn: Binding(
+                get: { self.settings.automaticDictionaryLearningEnabled },
+                set: { enabled in
+                    self.settings.automaticDictionaryLearningEnabled = enabled
+                    if !enabled {
+                        AutomaticDictionaryCorrectionTracker.shared.cancel()
+                    }
+                }
+            ))
+            .toggleStyle(.switch)
+            .tint(self.theme.palette.accent)
+            .labelsHidden()
         }
     }
 }

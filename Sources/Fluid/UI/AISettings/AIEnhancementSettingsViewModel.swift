@@ -45,8 +45,10 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
     @Published var providerAPIKeys: [String: String] = [:]
     @Published var currentProvider: String = ""
     @Published var savedProviders: [SettingsStore.SavedProvider] = []
+    private var persistsSelectedProvider = true
     @Published var selectedProviderID: String {
         didSet {
+            guard self.persistsSelectedProvider else { return }
             self.settings.selectedProviderID = self.selectedProviderID
             self.syncPromptSelectionForSelectedProvider()
         }
@@ -381,7 +383,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         }
 
         do {
-            let status = try await PrivateAIIntegrationService.shared.loadModel(currentModel)
+            let status = try await PrivateAIIntegrationService.shared.verifyModel(currentModel)
             switch status.state {
             case .ready:
                 let fingerprint = self.privateAIFingerprint(for: currentModel.id)
@@ -393,7 +395,6 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
                 self.settings.verifiedPrivateAIModelFingerprints = modelFingerprints
                 self.selectedModelByProvider[key] = currentModel.id
                 self.settings.selectedModelByProvider = self.selectedModelByProvider
-                self.selectProviderForUse(providerID)
                 self.updateConnectionStatus(.success, for: providerID)
                 DebugLogger.shared.info(
                     "Private AI Provider verification succeeded for \(currentModel.id)",
@@ -447,9 +448,17 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         self.fetchedModelsProviders.contains(self.providerKey(for: providerID))
     }
 
-    func selectProvider(_ providerID: String) {
+    func configureProvider(_ providerID: String) {
+        self.persistsSelectedProvider = false
         self.selectProviderForUse(providerID)
+        self.persistsSelectedProvider = true
         self.setEditingAPIKey(true, for: providerID)
+    }
+
+    func finishConfiguringProvider() {
+        self.persistsSelectedProvider = false
+        self.selectProviderForUse(self.settings.selectedProviderID)
+        self.persistsSelectedProvider = true
     }
 
     private func selectProviderForUse(_ providerID: String) {
@@ -492,7 +501,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         self.settings.availableModelsByProvider = self.availableModelsByProvider
         self.settings.selectedModelByProvider = self.selectedModelByProvider
 
-        self.selectedProviderID = draft.id
+        self.configureProvider(draft.id)
         self.openAIBaseURL = ""
         self.updateCurrentProvider()
         self.availableModels = []
@@ -547,7 +556,6 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         self.settings.savedProviders = self.savedProviders
         self.settings.availableModelsByProvider = self.availableModelsByProvider
         self.settings.selectedModelByProvider = self.selectedModelByProvider
-        self.settings.selectedProviderID = self.selectedProviderID
         self.refreshProviderItems()
     }
 
@@ -1090,9 +1098,11 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
     }
 
     func deleteCurrentProvider() {
-        self.savedProviders.removeAll { $0.id == self.selectedProviderID }
+        let deletedProviderID = self.selectedProviderID
+        let deletedDefaultProvider = self.settings.selectedProviderID == deletedProviderID
+        self.savedProviders.removeAll { $0.id == deletedProviderID }
         self.saveSavedProviders()
-        let key = self.providerKey(for: self.selectedProviderID)
+        let key = self.providerKey(for: deletedProviderID)
         self.availableModelsByProvider.removeValue(forKey: key)
         self.selectedModelByProvider.removeValue(forKey: key)
         self.providerAPIKeys.removeValue(forKey: key)
@@ -1100,11 +1110,10 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         self.settings.verifiedProviderFingerprints.removeValue(forKey: key)
         self.settings.availableModelsByProvider = self.availableModelsByProvider
         self.settings.selectedModelByProvider = self.selectedModelByProvider
-        self.selectedProviderID = ""
-        self.openAIBaseURL = ""
-        self.updateCurrentProvider()
-        self.availableModels = []
-        self.selectedModel = ""
+        if deletedDefaultProvider {
+            self.settings.selectedProviderID = ""
+        }
+        self.finishConfiguringProvider()
         self.refreshVerifiedProviders()
         self.selectSoleVerifiedProviderIfNeeded()
     }
@@ -1884,10 +1893,6 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
         PrivateAIProviderPromptFormat.isAvailable(settings: self.settings)
     }
 
-    func isPrivateAIModelSelected() -> Bool {
-        PrivateAIProviderPromptFormat.isAvailable(settings: self.settings)
-    }
-
     func isPrivateAIPromptSelected() -> Bool {
         self.settings.dictationPromptSelection == .privateAI
     }
@@ -1932,8 +1937,9 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
 
     func defaultVerifiedPromptProviderID() -> String {
         let verified = self.verifiedPromptProviders()
-        if verified.contains(where: { $0.id == self.selectedProviderID }) {
-            return self.selectedProviderID
+        let persistedProviderID = self.settings.selectedProviderID
+        if verified.contains(where: { $0.id == persistedProviderID }) {
+            return persistedProviderID
         }
         return verified.first?.id ?? ""
     }
@@ -2066,11 +2072,7 @@ final class AIEnhancementSettingsViewModel: ObservableObject {
 
     func setSelectedPromptID(_ id: String?, for mode: SettingsStore.PromptMode) {
         if mode.normalized == .dictate {
-            if self.isPrivateAIModelSelected() {
-                if id == nil {
-                    self.settings.setDictationPromptSelection(.privateAI)
-                }
-            } else if let id {
+            if let id {
                 self.settings.setDictationPromptSelection(.profile(id))
             } else {
                 self.settings.setDictationPromptSelection(.default)

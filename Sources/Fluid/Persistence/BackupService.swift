@@ -60,6 +60,8 @@ struct SettingsBackupPayload: Codable, Equatable {
     let enableStreamingPreview: Bool
     // Optional so backups created before incremental Parakeet finalization still decode.
     let experimentalParakeetUnifiedFinalEnabled: Bool?
+    // Optional so backups created before History performance details still decode.
+    let showHistoryPerformanceMetrics: Bool?
     // Optional so backups created before the silence filter still decode.
     let skipSilentRecordingsEnabled: Bool?
     let enableAIStreaming: Bool
@@ -108,6 +110,7 @@ struct SettingsBackupPayload: Codable, Equatable {
     let contextAwareCapitalizationEnabled: Bool?
     let pauseMediaDuringTranscription: Bool
     let automaticDictionaryLearningEnabled: Bool?
+    let automaticDictionarySuggestionFrequency: SettingsStore.AutomaticDictionarySuggestionFrequency?
     let pronunciationMatchingEnabled: Bool?
     let vocabularyBoostingEnabled: Bool
     let customDictionaryEntries: [SettingsStore.CustomDictionaryEntry]

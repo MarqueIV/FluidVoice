@@ -124,6 +124,23 @@ enum PrivateAIModelDownloadProgressText {
 
 typealias PrivateAIModelDownloadProgressHandler = @Sendable (PrivateAIModelDownloadProgress) async -> Void
 
+enum PrivateAIModelUpdateState: String, Sendable, Codable, Equatable {
+    case unavailable
+    case notInstalled
+    case current
+    case updateAvailable
+}
+
+struct PrivateAIModelUpdateStatus: Sendable, Codable, Equatable {
+    var state: PrivateAIModelUpdateState
+    var installedVersion: String?
+    var availableVersion: String?
+}
+
+struct PrivateAIModelUpdateToken: Sendable, Hashable {
+    let id: UUID
+}
+
 struct PrivateAIRegisteredModel: Sendable, Codable, Hashable, Identifiable {
     var id: String { self.artifact.identifier }
     var displayName: String
@@ -136,6 +153,12 @@ struct PrivateAIRegisteredModel: Sendable, Codable, Hashable, Identifiable {
     var canDownload: Bool {
         self.artifact.downloadURL != nil && self.artifact.sha256?.isEmpty == false
     }
+}
+
+enum PrivateAIModelTask: String, Sendable, Codable, Hashable {
+    case dictation
+    case edit
+    case command
 }
 
 enum PrivateAIRuntimeState: String, Sendable, Codable, Hashable {
@@ -170,7 +193,9 @@ protocol PrivateAIProviderFeatureProviding: Sendable {
     var boostDefaultsKey: String { get }
     var modelDirectoryName: String { get }
 
+    func selectedModelDefaultsKey(for task: PrivateAIModelTask) -> String
     func modelIDs() -> [String]
+    func modelIDs(for task: PrivateAIModelTask) -> [String]
     func model(id: String) -> PrivateAIRegisteredModel?
     func canonicalModelID(for value: String) -> String?
     func isKnownModelID(_ value: String) -> Bool
@@ -179,6 +204,14 @@ protocol PrivateAIProviderFeatureProviding: Sendable {
 }
 
 extension PrivateAIProviderFeatureProviding {
+    func selectedModelDefaultsKey(for _: PrivateAIModelTask) -> String {
+        self.selectedModelDefaultsKey
+    }
+
+    func modelIDs(for task: PrivateAIModelTask) -> [String] {
+        task == .dictation ? self.modelIDs() : []
+    }
+
     func matches(model: String) -> Bool {
         guard self.isAvailable else { return false }
 
@@ -212,10 +245,18 @@ protocol PrivateAIIntegrationProviding: Sendable {
         _ model: PrivateAIRegisteredModel,
         progressHandler: PrivateAIModelDownloadProgressHandler?
     ) async throws -> URL
+    func modelUpdateStatus(_ model: PrivateAIRegisteredModel) async -> PrivateAIModelUpdateStatus
+    func updateModel(
+        _ model: PrivateAIRegisteredModel,
+        progressHandler: PrivateAIModelDownloadProgressHandler?
+    ) async throws -> PrivateAIModelUpdateToken
+    func commitModelUpdate(_ token: PrivateAIModelUpdateToken) async
+    func rollbackModelUpdate(_ token: PrivateAIModelUpdateToken) async
     func shouldHandleDictation(model: String) -> Bool
     func status(for runtime: PrivateAIIntegrationService.RuntimeConfiguration) async -> PrivateAIStatus
     func loadedModelState() async -> PrivateAIIntegrationService.LoadedModelState?
     func loadModel(_ model: PrivateAIRegisteredModel) async throws -> PrivateAIStatus
+    func verifyModel(_ model: PrivateAIRegisteredModel) async throws -> PrivateAIStatus
     func prewarmDictation() async
     func unloadCachedRuntime(reason: String) async
     func shutdownForTermination() async
@@ -239,6 +280,10 @@ protocol PrivateAIIntegrationProviding: Sendable {
 }
 
 extension PrivateAIIntegrationProviding {
+    func verifyModel(_ model: PrivateAIRegisteredModel) async throws -> PrivateAIStatus {
+        try await self.loadModel(model)
+    }
+
     func installedModelURLs(for model: PrivateAIRegisteredModel) -> [URL] {
         guard let path = self.localModelPath(for: model) else { return [] }
         return [URL(fileURLWithPath: path)]
@@ -249,6 +294,20 @@ extension PrivateAIIntegrationProviding {
     func prepareModel(_ model: PrivateAIRegisteredModel) async throws -> URL {
         try await self.prepareModel(model, progressHandler: nil)
     }
+
+    func modelUpdateStatus(_: PrivateAIRegisteredModel) async -> PrivateAIModelUpdateStatus {
+        PrivateAIModelUpdateStatus(state: .unavailable)
+    }
+
+    func updateModel(
+        _: PrivateAIRegisteredModel,
+        progressHandler _: PrivateAIModelDownloadProgressHandler?
+    ) async throws -> PrivateAIModelUpdateToken {
+        throw PrivateAIUnavailableError()
+    }
+
+    func commitModelUpdate(_: PrivateAIModelUpdateToken) async {}
+    func rollbackModelUpdate(_: PrivateAIModelUpdateToken) async {}
 
     /// Best-effort, no-op by default. Backends that support prefix priming
     /// (the local FluidIntelligence bridge) override this to load and prime the
@@ -354,6 +413,10 @@ enum PrivateAIModelRegistry {
 
     nonisolated static func modelIDs(includeDisabled _: Bool = false) -> [String] {
         PrivateAIProviderFeature.shared.modelIDs()
+    }
+
+    nonisolated static func modelIDs(for task: PrivateAIModelTask) -> [String] {
+        PrivateAIProviderFeature.shared.modelIDs(for: task)
     }
 
     nonisolated static func localModelURL(for model: PrivateAIRegisteredModel, directoryURL: URL) -> URL {

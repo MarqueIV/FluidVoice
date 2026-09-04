@@ -36,6 +36,7 @@ enum SettingsSearchTarget: Hashable {
     case usageStreak
     case skipSilentRecordings
     case pauseMedia
+    case dictionarySuggestions
     case accessibilityPermission
     case textFormatting
 
@@ -59,7 +60,9 @@ enum SettingsSearchTarget: Hashable {
     case backupAndRestore
     case audioStorage
     case debugLogs
+    case experimental
     case fasterLongDictation
+    case historyPerformance
 
     var section: SettingsSection {
         switch self {
@@ -91,6 +94,7 @@ enum SettingsSearchTarget: Hashable {
              .usageStreak,
              .skipSilentRecordings,
              .pauseMedia,
+             .dictionarySuggestions,
              .accessibilityPermission,
              .textFormatting:
             return .dictation
@@ -110,8 +114,11 @@ enum SettingsSearchTarget: Hashable {
              .bottomOffset:
             return .overlay
 
-        case .dataAndDiagnostics, .backupAndRestore, .debugLogs, .fasterLongDictation:
+        case .dataAndDiagnostics, .backupAndRestore, .debugLogs:
             return .dataAndDiagnostics
+
+        case .experimental, .fasterLongDictation, .historyPerformance:
+            return .experimental
         }
     }
 }
@@ -125,6 +132,7 @@ extension SettingsSection {
         case .audio: return .audio
         case .overlay: return .overlay
         case .dataAndDiagnostics: return .dataAndDiagnostics
+        case .experimental: return .experimental
         }
     }
 }
@@ -256,6 +264,11 @@ enum SettingsSearchIndex {
             terms: ["resume music audio video playback recording"]
         ),
         .init(
+            target: .dictionarySuggestions,
+            title: "Auto-Learn Corrections",
+            terms: ["automatic corrections learn words custom dictionary frequency ignore"]
+        ),
+        .init(
             target: .accessibilityPermission,
             title: "Accessibility Permission",
             terms: ["global hotkey access macOS system settings authorize"]
@@ -345,6 +358,16 @@ enum SettingsSearchIndex {
             target: .fasterLongDictation,
             title: "Faster Long Dictation",
             terms: ["experimental Parakeet reuse live windows remaining tail transcription"]
+        ),
+        .init(
+            target: .experimental,
+            title: "Experimental",
+            terms: ["preview early access optional features"]
+        ),
+        .init(
+            target: .historyPerformance,
+            title: "Show Performance in History",
+            terms: ["timing speed tokens per second ASR cleanup Fluid Intelligence"]
         ),
     ]
 

@@ -34,6 +34,19 @@ actor PrivateAIIntegrationService {
         let outputText: String
         let backendKind: String?
         let latencyMilliseconds: Int?
+        let tokensPerSecond: Double?
+
+        init(
+            outputText: String,
+            backendKind: String?,
+            latencyMilliseconds: Int?,
+            tokensPerSecond: Double? = nil
+        ) {
+            self.outputText = outputText
+            self.backendKind = backendKind
+            self.latencyMilliseconds = latencyMilliseconds
+            self.tokensPerSecond = tokensPerSecond
+        }
     }
 
     struct LoadedModelState: Sendable, Equatable {
@@ -144,6 +157,27 @@ actor PrivateAIIntegrationService {
         try await self.provider.prepareModel(model, progressHandler: progressHandler)
     }
 
+    nonisolated static func modelUpdateStatus(
+        _ model: PrivateAIRegisteredModel
+    ) async -> PrivateAIModelUpdateStatus {
+        await self.provider.modelUpdateStatus(model)
+    }
+
+    nonisolated static func updateModel(
+        _ model: PrivateAIRegisteredModel,
+        progressHandler: PrivateAIModelDownloadProgressHandler? = nil
+    ) async throws -> PrivateAIModelUpdateToken {
+        try await self.provider.updateModel(model, progressHandler: progressHandler)
+    }
+
+    nonisolated static func commitModelUpdate(_ token: PrivateAIModelUpdateToken) async {
+        await self.provider.commitModelUpdate(token)
+    }
+
+    nonisolated static func rollbackModelUpdate(_ token: PrivateAIModelUpdateToken) async {
+        await self.provider.rollbackModelUpdate(token)
+    }
+
     nonisolated static var isLocalRuntimeConfigured: Bool {
         provider.isLocalRuntimeConfigured
     }
@@ -166,6 +200,10 @@ actor PrivateAIIntegrationService {
 
         await self.removeInactiveInstalledModels(keeping: model)
         return status
+    }
+
+    func verifyModel(_ model: PrivateAIRegisteredModel) async throws -> PrivateAIStatus {
+        try await Self.provider.verifyModel(model)
     }
 
     func removeInactiveInstalledModels(keeping model: PrivateAIRegisteredModel) async {

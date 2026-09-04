@@ -41,7 +41,15 @@ struct DictationProviderRoute: Equatable {
                 selectedProviderID = providerID
                 configuredModel = model
             } else {
-                selectedProviderID = settings.selectedProviderID
+                let hasAppBinding = settings.appPromptBinding(for: .dictate, appBundleID: appBundleID) != nil
+                if selection == .default, !hasAppBinding, self.shouldUseLegacyPrivateAIRoute(
+                    selectedProviderID: settings.selectedProviderID,
+                    configuredProviderID: providerID,
+                    configuredModel: model
+                ) {
+                    return self.privateAIRoute(settings: settings)
+                }
+                selectedProviderID = self.externalFallbackProviderID(from: settings.selectedProviderID)
                 configuredModel = nil
             }
         } else {
@@ -95,6 +103,50 @@ struct DictationProviderRoute: Equatable {
         )
     }
 
+    static func resolve(settings: SettingsStore, providerID: String, model: String) -> Self {
+        let trimmedProviderID = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let saved = settings.savedProviders.first(where: { $0.id == trimmedProviderID }) {
+            let key = "custom:\(saved.id)"
+            return Self(
+                providerID: trimmedProviderID,
+                providerKey: key,
+                baseURL: saved.baseURL,
+                model: trimmedModel,
+                apiKey: settings.providerAPIKeys[key] ?? settings.providerAPIKeys[trimmedProviderID] ?? ""
+            )
+        }
+        return Self(
+            providerID: trimmedProviderID,
+            providerKey: trimmedProviderID,
+            baseURL: ModelRepository.shared.defaultBaseURL(for: trimmedProviderID),
+            model: trimmedModel,
+            apiKey: settings.providerAPIKeys[trimmedProviderID] ?? ""
+        )
+    }
+
+    static func externalFallbackProviderID(from providerID: String) -> String {
+        let trimmed = providerID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed == PrivateAIProviderFeature.shared.providerID ? "" : trimmed
+    }
+
+    static func shouldUseLegacyPrivateAIRoute(
+        selectedProviderID: String,
+        configuredProviderID: String,
+        configuredModel: String
+    ) -> Bool {
+        selectedProviderID == PrivateAIProviderFeature.shared.providerID &&
+            configuredProviderID.isEmpty && configuredModel.isEmpty
+    }
+
+    static func allowsPrivateAIRoute(
+        selection: SettingsStore.DictationPromptSelection,
+        selectedProviderID: String
+    ) -> Bool {
+        selection == .privateAI ||
+            (selection == .default && selectedProviderID == PrivateAIProviderFeature.shared.providerID)
+    }
+
     static func resolveForPostProcessing(
         settings: SettingsStore,
         dictationSlot: SettingsStore.DictationShortcutSlot
@@ -114,10 +166,11 @@ struct DictationProviderRoute: Equatable {
         appBundleID: String?
     ) -> SettingsStore.DictationPromptSelection {
         let selection = settings.dictationPromptSelection(for: dictationSlot)
-        guard selection != .off, selection != .privateAI else { return selection }
+        guard selection != .off else { return selection }
 
         let usesOnlyAppBindings = settings.promptRoutingScope(for: .dictate) == .selectedAppsOnly
-        guard usesOnlyAppBindings || selection == .default else { return selection }
+        let supportsAppOverride = SettingsStore.dictationSelectionSupportsAppOverride(selection)
+        guard usesOnlyAppBindings || supportsAppOverride else { return selection }
         guard let binding = settings.appPromptBinding(for: .dictate, appBundleID: appBundleID) else {
             return usesOnlyAppBindings ? .off : selection
         }
@@ -163,12 +216,15 @@ final class DictationPostProcessingService {
             source: "DictationPostProcessingService"
         )
 
-        let usesPrivateAISelection = settings.dictationPromptSelection(for: dictationSlot) == .privateAI
-        guard usesPrivateAISelection || !resolved.usesPrivateAI else {
+        let allowsPrivateAIRoute = DictationProviderRoute.allowsPrivateAIRoute(
+            selection: settings.dictationPromptSelection(for: dictationSlot),
+            selectedProviderID: settings.selectedProviderID
+        )
+        guard allowsPrivateAIRoute || !resolved.usesPrivateAI else {
             throw AIProcessingError.noVerifiedProvider
         }
 
-        if usesPrivateAISelection,
+        if allowsPrivateAIRoute,
            resolved.usesPrivateAI || PrivateAIIntegrationService.shouldHandleDictation(model: resolved.model)
         {
             let response = try await PrivateAIIntegrationService.shared.enhanceDictation(

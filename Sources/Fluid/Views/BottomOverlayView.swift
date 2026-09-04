@@ -1445,10 +1445,6 @@ private struct BottomOverlayPromptMenuView: View {
     let onDismissRequested: () -> Void
     @State private var hoveredRowID: String?
 
-    private var privateAILocked: Bool {
-        self.promptMode.normalized == .dictate && PrivateAIProviderPromptFormat.isAvailable(settings: self.settings)
-    }
-
     private func rowBackground(isSelected: Bool, rowID: String) -> some View {
         let isHovered = self.hoveredRowID == rowID
         let fillColor: Color
@@ -1562,13 +1558,12 @@ private struct BottomOverlayPromptMenuView: View {
     @ViewBuilder
     private func defaultRow(selectedID: String?) -> some View {
         let activeSlot = self.contentState.activeDictationShortcutSlot ?? .primary
-        let isSelected = !self.privateAILocked && (
+        let isSelected = (
             self.promptMode.normalized == .dictate
                 ? (self.settings.dictationPromptSelection(for: activeSlot) == .default)
                 : (selectedID == nil)
         )
         Button(action: {
-            guard !self.privateAILocked else { return }
             if self.promptMode.normalized == .dictate {
                 self.contentState.onDictationPromptSelectionRequested?(.default)
             } else {
@@ -1591,10 +1586,8 @@ private struct BottomOverlayPromptMenuView: View {
             .background(self.rowBackground(isSelected: isSelected, rowID: "default"))
         }
         .buttonStyle(.plain)
-        .disabled(self.privateAILocked)
-        .opacity(self.privateAILocked ? 0.45 : 1)
         .onHover { hovering in
-            self.hoveredRowID = hovering && !self.privateAILocked ? "default" : nil
+            self.hoveredRowID = hovering ? "default" : nil
         }
     }
 
@@ -1637,13 +1630,12 @@ private struct BottomOverlayPromptMenuView: View {
     @ViewBuilder
     private func profileRow(_ profile: SettingsStore.DictationPromptProfile, selectedID: String?) -> some View {
         let activeSlot = self.contentState.activeDictationShortcutSlot ?? .primary
-        let isSelected = !self.privateAILocked && (
+        let isSelected = (
             self.promptMode.normalized == .dictate
                 ? (self.settings.dictationPromptSelection(for: activeSlot) == .profile(profile.id))
                 : (selectedID == profile.id)
         )
         Button(action: {
-            guard !self.privateAILocked else { return }
             if self.promptMode.normalized == .dictate {
                 self.contentState.onDictationPromptSelectionRequested?(.profile(profile.id))
             } else {
@@ -1666,10 +1658,8 @@ private struct BottomOverlayPromptMenuView: View {
             .background(self.rowBackground(isSelected: isSelected, rowID: profile.id))
         }
         .buttonStyle(.plain)
-        .disabled(self.privateAILocked)
-        .opacity(self.privateAILocked ? 0.45 : 1)
         .onHover { hovering in
-            self.hoveredRowID = hovering && !self.privateAILocked ? profile.id : nil
+            self.hoveredRowID = hovering ? profile.id : nil
         }
     }
 
@@ -1693,23 +1683,21 @@ private struct BottomOverlayPromptMenuView: View {
                 }
             }
 
-            if !self.privateAILocked {
-                if self.promptMode.normalized == .dictate {
-                    Divider()
-                        .padding(.vertical, 4)
-                }
-
-                Text("EXTERNAL")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.4))
-                    .padding(.horizontal, 8)
-                    .padding(.top, self.promptMode.normalized == .dictate ? 0 : 4)
-                    .padding(.bottom, 3)
-
-                self.defaultRow(selectedID: selectedID)
+            if self.promptMode.normalized == .dictate {
+                Divider()
+                    .padding(.vertical, 4)
             }
 
-            if !self.privateAILocked && !profiles.isEmpty {
+            Text("EXTERNAL")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.4))
+                .padding(.horizontal, 8)
+                .padding(.top, self.promptMode.normalized == .dictate ? 0 : 4)
+                .padding(.bottom, 3)
+
+            self.defaultRow(selectedID: selectedID)
+
+            if !profiles.isEmpty {
                 ForEach(profiles) { profile in
                     self.profileRow(profile, selectedID: selectedID)
                 }
@@ -3044,6 +3032,26 @@ struct BottomOverlayView: View {
         .opacity((appIcon != nil || showModelLoading || !self.layout.showsModeLabel) ? 1 : 0)
     }
 
+    private var leadingAppContextView: some View {
+        HStack(spacing: self.isPillSize ? 4 : 8) {
+            if self.showsSpokenSendIndicator {
+                SpokenSendIndicatorView(
+                    state: self.contentState.spokenSendIndicatorState,
+                    color: self.modeColor,
+                    size: self.isPillSize ? 14 : self.spokenSendIndicatorSize
+                )
+                .id(self.contentState.spokenSendCountdownID)
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
+            }
+
+            self.targetAppIconView
+        }
+        .animation(
+            self.reduceMotion ? nil : .easeOut(duration: 0.14),
+            value: self.contentState.spokenSendIndicatorState
+        )
+    }
+
     private func scrollablePreviewText(_ previewText: String) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: false) {
@@ -3224,7 +3232,7 @@ struct BottomOverlayView: View {
                 // Waveform + Mode label row
                 HStack(spacing: self.isPillSize ? 4 : self.layout.hPadding / 1.5) {
                     if !self.layout.showsTopControls {
-                        self.targetAppIconView
+                        self.leadingAppContextView
                     }
 
                     // Waveform visualization
@@ -3240,47 +3248,14 @@ struct BottomOverlayView: View {
                         height: self.layout.waveformHeight
                     )
 
-                    if self.isPillSize, self.showsSpokenSendIndicator {
-                        SpokenSendIndicatorView(
-                            state: self.contentState.spokenSendIndicatorState,
-                            color: self.modeColor,
-                            size: 14
-                        )
-                        .id(self.contentState.spokenSendCountdownID)
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
-                    }
-
-                    // Larger overlays already identify the mode in the selector above.
-                    if self.layout.showsTopControls, self.showsSpokenSendIndicator {
-                        SpokenSendIndicatorView(
-                            state: self.contentState.spokenSendIndicatorState,
-                            color: self.modeColor,
-                            size: self.spokenSendIndicatorSize
-                        )
-                        .id(self.contentState.spokenSendCountdownID)
-                        .transition(.scale(scale: 0.8).combined(with: .opacity))
-                    }
-
                     // Compact overlays still need a visible mode because they have no selector.
                     if self.layout.showsModeLabel, !self.layout.showsTopControls {
                         VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 5) {
-                                Text(self.modeLabel)
-                                    .font(.system(size: self.layout.modeFontSize, weight: .semibold))
-                                    .foregroundStyle(self.modeColor)
-                                    .lineLimit(1)
-                                    .fixedSize(horizontal: true, vertical: false)
-
-                                if self.showsSpokenSendIndicator {
-                                    SpokenSendIndicatorView(
-                                        state: self.contentState.spokenSendIndicatorState,
-                                        color: self.modeColor,
-                                        size: self.spokenSendIndicatorSize
-                                    )
-                                    .id(self.contentState.spokenSendCountdownID)
-                                    .transition(.scale(scale: 0.8).combined(with: .opacity))
-                                }
-                            }
+                            Text(self.modeLabel)
+                                .font(.system(size: self.layout.modeFontSize, weight: .semibold))
+                                .foregroundStyle(self.modeColor)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
 
                             if !self.appServices.asr.isAsrReady &&
                                 (self.appServices.asr.isLoadingModel || self.appServices.asr.isDownloadingModel)
@@ -3302,7 +3277,7 @@ struct BottomOverlayView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .overlay(alignment: .leading) {
                     if self.layout.showsTopControls {
-                        self.targetAppIconView
+                        self.leadingAppContextView
                     }
                 }
                 .overlay(alignment: .trailing) {

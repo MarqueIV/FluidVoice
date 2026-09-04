@@ -720,11 +720,9 @@ final class SettingsStore: ObservableObject {
         switch self.dictationPromptSelection(for: slot) {
         case .off:
             return nil
-        case .privateAI:
-            return nil
         case let .profile(promptID):
             return self.dictationPromptProfiles.first(where: { $0.id == promptID && $0.mode.normalized == .dictate })
-        case .default:
+        case .default, .privateAI:
             guard let binding = self.appPromptBinding(for: .dictate, appBundleID: appBundleID) else { return nil }
             let promptID = binding.promptID
             return self.dictationPromptProfiles.first {
@@ -734,9 +732,13 @@ final class SettingsStore: ObservableObject {
     }
 
     func isAppDictationPromptBindingActive(for slot: DictationShortcutSlot, appBundleID: String?) -> Bool {
-        guard !PrivateAIProviderPromptFormat.isAvailable(settings: self) else { return false }
-        guard self.dictationPromptSelection(for: slot) == .default else { return false }
+        let selection = self.dictationPromptSelection(for: slot)
+        guard Self.dictationSelectionSupportsAppOverride(selection) else { return false }
         return self.hasAppPromptBinding(for: .dictate, appBundleID: appBundleID)
+    }
+
+    static func dictationSelectionSupportsAppOverride(_ selection: DictationPromptSelection) -> Bool {
+        selection == .default || selection == .privateAI
     }
 
     func dictationPromptDisplayName(for slot: DictationShortcutSlot, appBundleID: String?) -> String {
@@ -749,7 +751,15 @@ final class SettingsStore: ObservableObject {
                 return name.isEmpty ? "Untitled" : name
             }
             return "Default"
-        case .privateAI: return PrivateAIProviderFeature.displayName
+        case .privateAI:
+            if self.isAppDictationPromptBindingActive(for: slot, appBundleID: appBundleID) {
+                if let profile = self.resolvedDictationPromptProfile(for: slot, appBundleID: appBundleID) {
+                    let name = profile.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return name.isEmpty ? "Untitled" : name
+                }
+                return "Default"
+            }
+            return PrivateAIProviderFeature.displayName
         case let .profile(promptID):
             guard let profile = self.dictationPromptProfiles.first(where: { $0.id == promptID && $0.mode.normalized == .dictate }) else {
                 return "Default"
@@ -1490,7 +1500,6 @@ final class SettingsStore: ObservableObject {
         set {
             objectWillChange.send()
             self.defaults.set(newValue, forKey: Keys.enableDebugLogs)
-            DebugLogger.shared.refreshLoggingEnabled()
         }
     }
 
@@ -1498,7 +1507,6 @@ final class SettingsStore: ObservableObject {
         if self.defaults.object(forKey: Keys.enableDebugLogs) == nil {
             self.defaults.set(true, forKey: Keys.enableDebugLogs)
         }
-        DebugLogger.shared.refreshLoggingEnabled()
     }
 
     var selectedModel: String? {
@@ -1835,6 +1843,15 @@ final class SettingsStore: ObservableObject {
         set {
             objectWillChange.send()
             self.defaults.set(newValue, forKey: Keys.experimentalParakeetUnifiedFinalEnabled)
+        }
+    }
+
+    /// Shows optional ASR and AI performance details in transcription history.
+    var showHistoryPerformanceMetrics: Bool {
+        get { self.defaults.object(forKey: Keys.showHistoryPerformanceMetrics) as? Bool ?? false }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue, forKey: Keys.showHistoryPerformanceMetrics)
         }
     }
 
@@ -3280,6 +3297,7 @@ final class SettingsStore: ObservableObject {
             hotkeyMode: self.hotkeyMode,
             enableStreamingPreview: self.enableStreamingPreview,
             experimentalParakeetUnifiedFinalEnabled: self.experimentalParakeetUnifiedFinalEnabled,
+            showHistoryPerformanceMetrics: self.showHistoryPerformanceMetrics,
             skipSilentRecordingsEnabled: self.skipSilentRecordingsEnabled,
             enableAIStreaming: self.enableAIStreaming,
             copyTranscriptionToClipboard: self.copyTranscriptionToClipboard,
@@ -3322,6 +3340,7 @@ final class SettingsStore: ObservableObject {
             contextAwareCapitalizationEnabled: self.contextAwareCapitalizationEnabled,
             pauseMediaDuringTranscription: self.pauseMediaDuringTranscription,
             automaticDictionaryLearningEnabled: self.automaticDictionaryLearningEnabled,
+            automaticDictionarySuggestionFrequency: self.automaticDictionarySuggestionFrequency,
             pronunciationMatchingEnabled: self.pronunciationMatchingEnabled,
             vocabularyBoostingEnabled: self.vocabularyBoostingEnabled,
             customDictionaryEntries: self.customDictionaryEntries,
@@ -3413,6 +3432,9 @@ final class SettingsStore: ObservableObject {
         if let experimentalParakeetUnifiedFinalEnabled = payload.experimentalParakeetUnifiedFinalEnabled {
             self.experimentalParakeetUnifiedFinalEnabled = experimentalParakeetUnifiedFinalEnabled
         }
+        if let showHistoryPerformanceMetrics = payload.showHistoryPerformanceMetrics {
+            self.showHistoryPerformanceMetrics = showHistoryPerformanceMetrics
+        }
         if let skipSilentRecordingsEnabled = payload.skipSilentRecordingsEnabled {
             self.skipSilentRecordingsEnabled = skipSilentRecordingsEnabled
         }
@@ -3496,6 +3518,9 @@ final class SettingsStore: ObservableObject {
         self.pauseMediaDuringTranscription = payload.pauseMediaDuringTranscription
         if let automaticDictionaryLearningEnabled = payload.automaticDictionaryLearningEnabled {
             self.automaticDictionaryLearningEnabled = automaticDictionaryLearningEnabled
+        }
+        if let automaticDictionarySuggestionFrequency = payload.automaticDictionarySuggestionFrequency {
+            self.automaticDictionarySuggestionFrequency = automaticDictionarySuggestionFrequency
         }
         if let pronunciationMatchingEnabled = payload.pronunciationMatchingEnabled {
             self.pronunciationMatchingEnabled = pronunciationMatchingEnabled
@@ -3969,13 +3994,54 @@ final class SettingsStore: ObservableObject {
         return ModelRepository.shared.defaultModels(for: providerID).first
     }
 
+    func availableModels(for providerID: String, task: PrivateAIModelTask) -> [String] {
+        if self.isPrivateAIProviderID(providerID) {
+            return ModelRepository.shared.defaultModels(for: providerID, task: task)
+        }
+
+        if let configured = ModelRepository.shared.providerKeys(for: providerID).lazy
+            .compactMap({ self.availableModelsByProvider[$0] })
+            .first(where: { !$0.isEmpty })
+        {
+            return configured
+        }
+
+        let savedProviderID = providerID.hasPrefix("custom:") ?
+            String(providerID.dropFirst("custom:".count)) : providerID
+        if let configured = self.savedProviders.first(where: { $0.id == savedProviderID })?.models,
+           !configured.isEmpty
+        {
+            return configured
+        }
+
+        return ModelRepository.shared.defaultModels(for: providerID)
+    }
+
+    var effectiveRewriteModeProviderID: String {
+        self.rewriteModeLinkedToGlobal ? self.selectedProviderID : self.rewriteModeSelectedProviderID
+    }
+
+    var effectiveRewriteModeSelectedModel: String {
+        let providerID = self.effectiveRewriteModeProviderID
+        let models = self.availableModels(for: providerID, task: .edit)
+        let preferred: String? = if self.rewriteModeLinkedToGlobal {
+            ModelRepository.shared.providerKeys(for: providerID).lazy
+                .compactMap { self.selectedModelByProvider[$0] }
+                .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                ?? self.selectedModel
+        } else {
+            self.rewriteModeSelectedModel
+        }
+        return ModelRepository.eligibleModel(preferred: preferred, from: models) ?? ""
+    }
+
     func analyticsAIModelDescriptor(for mode: AnalyticsUsageMode) -> AnalyticsModelDescriptor? {
         let providerID: String
         let selectedModel: String?
         switch mode {
         case .edit:
-            providerID = self.rewriteModeLinkedToGlobal ? self.selectedProviderID : self.rewriteModeSelectedProviderID
-            selectedModel = self.rewriteModeLinkedToGlobal ? self.modelSelection(for: providerID) : self.rewriteModeSelectedModel
+            providerID = self.effectiveRewriteModeProviderID
+            selectedModel = self.effectiveRewriteModeSelectedModel
         case .command:
             providerID = self.commandModeLinkedToGlobal ? self.selectedProviderID : self.commandModeSelectedProviderID
             selectedModel = self.commandModeLinkedToGlobal ? self.modelSelection(for: providerID) : self.commandModeSelectedModel
@@ -4522,11 +4588,38 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    enum AutomaticDictionarySuggestionFrequency: Int, Codable, CaseIterable, Identifiable {
+        case first = 1
+        case second = 2
+        case third = 3
+
+        var id: Int { self.rawValue }
+
+        var displayName: String {
+            switch self {
+            case .first: "1 correction"
+            case .second: "2 corrections"
+            case .third: "3 corrections"
+            }
+        }
+    }
+
     var automaticDictionaryLearningEnabled: Bool {
         get { self.defaults.object(forKey: Keys.automaticDictionaryLearningEnabled) as? Bool ?? true }
         set {
             objectWillChange.send()
             self.defaults.set(newValue, forKey: Keys.automaticDictionaryLearningEnabled)
+        }
+    }
+
+    var automaticDictionarySuggestionFrequency: AutomaticDictionarySuggestionFrequency {
+        get {
+            let stored = self.defaults.integer(forKey: Keys.automaticDictionarySuggestionFrequency)
+            return AutomaticDictionarySuggestionFrequency(rawValue: stored) ?? .first
+        }
+        set {
+            objectWillChange.send()
+            self.defaults.set(newValue.rawValue, forKey: Keys.automaticDictionarySuggestionFrequency)
         }
     }
 
@@ -5355,6 +5448,7 @@ private extension SettingsStore {
         static let hotkeyMode = "HotkeyMode"
         static let enableStreamingPreview = "EnableStreamingPreview"
         static let experimentalParakeetUnifiedFinalEnabled = "ExperimentalParakeetUnifiedFinalEnabled"
+        static let showHistoryPerformanceMetrics = "ShowHistoryPerformanceMetrics"
         static let skipSilentRecordingsEnabled = "SkipSilentRecordingsEnabled"
         static let enableAIStreaming = "EnableAIStreaming"
         static let copyTranscriptionToClipboard = "CopyTranscriptionToClipboard"
@@ -5439,6 +5533,7 @@ private extension SettingsStore {
         // Custom Dictionary
         static let customDictionaryEntries = "CustomDictionaryEntries"
         static let automaticDictionaryLearningEnabled = "AutomaticDictionaryLearningEnabled"
+        static let automaticDictionarySuggestionFrequency = "AutomaticDictionarySuggestionFrequency"
         static let vocabularyBoostingEnabled = "VocabularyBoostingEnabled"
         static let pronunciationMatchingEnabled = "PronunciationMatchingEnabled"
 

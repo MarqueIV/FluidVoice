@@ -161,13 +161,13 @@ extension AIEnhancementSettingsView {
                 self.aiSetupSummaryDivider
                 self.aiSetupSummaryItem(icon: "cloud", text: "Cloud models use provider APIs")
                 self.aiSetupSummaryDivider
-                self.aiSetupSummaryItem(icon: "keyboard", text: "Shortcuts choose when prompts run")
+                self.aiSetupSummaryItem(icon: "wand.and.stars", text: "Cleanup Styles choose what dictation uses")
             }
 
             VStack(alignment: .leading, spacing: 7) {
                 self.aiSetupSummaryItem(icon: "cpu", text: "Local models run on Mac")
                 self.aiSetupSummaryItem(icon: "cloud", text: "Cloud models use provider APIs")
-                self.aiSetupSummaryItem(icon: "keyboard", text: "Shortcuts choose when prompts run")
+                self.aiSetupSummaryItem(icon: "wand.and.stars", text: "Cleanup Styles choose what dictation uses")
             }
         }
         .padding(.horizontal, 2)
@@ -576,9 +576,10 @@ extension AIEnhancementSettingsView {
             self.expandedProviderID = nil
             self.viewModel.clearEditProviderDraft()
             self.viewModel.setEditingAPIKey(false, for: providerID)
+            self.viewModel.finishConfiguringProvider()
         } else {
             self.expandedProviderID = providerID
-            self.selectProvider(providerID)
+            self.viewModel.configureProvider(providerID)
         }
     }
 
@@ -594,6 +595,7 @@ extension AIEnhancementSettingsView {
         let isVerified = self.isPrivateAIModelVerified(model)
         let isTesting = self.viewModel.isTestingConnection && self.viewModel.selectedProviderID == PrivateAIProviderFeature.shared.providerID
         let isBusy = isDownloading || isLoading || isTesting
+        let hasUpdate = isInstalled && self.privateAIModelUpdateStatusByID[model.id]?.state == .updateAvailable
         let canVerify = isInstalled && (!isVerified || hasLoadFailure) && !self.privateAISelectedModelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 
         return VStack(alignment: .leading, spacing: 10) {
@@ -607,6 +609,7 @@ extension AIEnhancementSettingsView {
                     models: PrivateAIModelRegistry.modelIDs(),
                     selectedModel: self.privateAIModelBinding,
                     selectionEnabled: !isBusy,
+                    displayName: self.privateAIModelDisplayName,
                     controlWidth: 180,
                     controlHeight: AISettingsLayout.providerRowControlHeight
                 )
@@ -678,6 +681,24 @@ extension AIEnhancementSettingsView {
                     }
                     .foregroundStyle(.secondary)
                 }
+            } else if hasUpdate {
+                Button(action: { self.updatePrivateAIModel(model) }) {
+                    HStack(spacing: 6) {
+                        if isDownloading {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .fixedSize()
+                        }
+                        Text(
+                            isDownloading
+                                ? Self.downloadButtonText(progress: downloadProgress)
+                                : "Update & Verify"
+                        )
+                        .font(.system(size: 11, weight: .semibold))
+                    }
+                }
+                .fluidButton(.accent, size: .small)
+                .disabled(isBusy)
             } else if canVerify {
                 Button(action: { self.verifyPrivateAIConnection(model) }) {
                     HStack(spacing: 6) {
@@ -927,7 +948,16 @@ extension AIEnhancementSettingsView {
         }
 
         self.refreshPrivateAILoadState()
+        self.refreshPrivateAIModelUpdateStatus(self.selectedPrivateAIModel)
         self.viewModel.refreshProviderItems()
+    }
+
+    func refreshPrivateAIModelUpdateStatus(_ model: PrivateAIRegisteredModel) {
+        Task { @MainActor in
+            let status = await PrivateAIIntegrationService.modelUpdateStatus(model)
+            guard self.privateAISelectedModelID == model.id else { return }
+            self.privateAIModelUpdateStatusByID[model.id] = status
+        }
     }
 
     private func downloadPrivateAIModel(_ model: PrivateAIRegisteredModel) {
@@ -982,6 +1012,80 @@ extension AIEnhancementSettingsView {
         }
     }
 
+    private func updatePrivateAIModel(_ model: PrivateAIRegisteredModel) {
+        guard self.privateAIModelUpdateStatusByID[model.id]?.state == .updateAvailable,
+              !self.privateAILoadState.isDownloading(model.id)
+        else { return }
+
+        let wasPreviouslyVerified = PrivateAIProviderPromptFormat.verifiedModelID(settings: self.settings) == model.id
+
+        self.privateAILoadState = .downloading(
+            modelID: model.id,
+            progress: PrivateAIModelDownloadProgress(initialExpectedBytes: model.artifact.byteCount)
+        )
+        Task { @MainActor in
+            var updateToken: PrivateAIModelUpdateToken?
+            do {
+                updateToken = try await PrivateAIIntegrationService.updateModel(model) { progress in
+                    await MainActor.run {
+                        guard self.privateAISelectedModelID == model.id else { return }
+                        self.privateAILoadState = .downloading(
+                            modelID: model.id,
+                            progress: progress.withFallbackExpectedBytes(model.artifact.byteCount)
+                        )
+                    }
+                }
+                guard self.privateAISelectedModelID == model.id else {
+                    if let updateToken {
+                        await PrivateAIIntegrationService.rollbackModelUpdate(updateToken)
+                    }
+                    return
+                }
+
+                self.privateAILoadState = .loading(modelID: model.id)
+                let start = ContinuousClock.now
+                let verified = await self.viewModel.verifyPrivateAIProvider(model: model)
+                let latencyMilliseconds = Self.elapsedMilliseconds(since: start)
+                guard self.privateAISelectedModelID == model.id else {
+                    if let updateToken {
+                        await PrivateAIIntegrationService.rollbackModelUpdate(updateToken)
+                    }
+                    return
+                }
+
+                if verified, let updateToken {
+                    await PrivateAIIntegrationService.commitModelUpdate(updateToken)
+                    self.privateAILoadState = .loaded(
+                        modelID: model.id,
+                        latencyMilliseconds: latencyMilliseconds
+                    )
+                } else {
+                    if let updateToken {
+                        await PrivateAIIntegrationService.rollbackModelUpdate(updateToken)
+                    }
+                    if wasPreviouslyVerified {
+                        self.viewModel.updateConnectionStatus(.success, for: PrivateAIProviderFeature.shared.providerID)
+                    }
+                    let detail = self.viewModel.connectionErrorMessage.isEmpty
+                        ? "The new model failed verification. The previous model is still active."
+                        : "The new model failed verification. The previous model is still active. \(self.viewModel.connectionErrorMessage)"
+                    self.privateAILoadState = .failed(modelID: model.id, message: detail)
+                }
+            } catch {
+                if let updateToken {
+                    await PrivateAIIntegrationService.rollbackModelUpdate(updateToken)
+                }
+                guard self.privateAISelectedModelID == model.id else { return }
+                self.privateAILoadState = .failed(
+                    modelID: model.id,
+                    message: "Update failed. The previous model is still active. \(Self.errorMessage(for: error))"
+                )
+            }
+            self.refreshPrivateAIModelUpdateStatus(model)
+            self.viewModel.refreshProviderItems()
+        }
+    }
+
     private func verifyPrivateAIConnection(_ model: PrivateAIRegisteredModel) {
         self.privateAILoadState = .loading(modelID: model.id)
         Task { @MainActor in
@@ -1001,8 +1105,12 @@ extension AIEnhancementSettingsView {
         }
     }
 
-    private var selectedPrivateAIModel: PrivateAIRegisteredModel {
+    var selectedPrivateAIModel: PrivateAIRegisteredModel {
         PrivateAIModelRegistry.model(id: self.privateAISelectedModelID) ?? PrivateAIModelRegistry.defaultModel
+    }
+
+    private func privateAIModelDisplayName(_ modelID: String) -> String {
+        PrivateAIModelRegistry.model(id: modelID)?.displayName ?? modelID
     }
 
     private func isPrivateAIModelVerified(_ model: PrivateAIRegisteredModel) -> Bool {
@@ -1210,6 +1318,7 @@ extension AIEnhancementSettingsView {
             self.viewModel.selectedModel = model.id
         }
         self.viewModel.resetVerification(for: PrivateAIProviderFeature.shared.providerID)
+        self.refreshPrivateAIModelUpdateStatus(model)
         self.viewModel.refreshProviderItems()
         if PrivateAIIntegrationService.isModelInstalled(model) {
             self.loadPrivateAIModel(model)
@@ -1359,7 +1468,7 @@ extension AIEnhancementSettingsView {
                         opacity: canFetchModels ? 1 : 0.45,
                         help: "Refresh model list"
                     ) {
-                        self.activateProvider(item.id)
+                        self.viewModel.configureProvider(item.id)
                         Task { await self.viewModel.fetchModelsForCurrentProvider() }
                     }
                 }
@@ -1536,8 +1645,11 @@ extension AIEnhancementSettingsView {
     private func verifiedProviderRow(_ item: ProviderItem) -> some View {
         let providerKey = self.viewModel.providerKey(for: item.id)
         let models = self.viewModel.availableModelsByProvider[providerKey] ?? []
-        let isSelected = item.id == self.viewModel.selectedProviderID
         let isPrivateAIProvider = item.id == PrivateAIProviderFeature.shared.providerID
+        let primaryPromptSelection = self.viewModel.dictationPromptSelection(for: .primary)
+        let isDefaultProvider = isPrivateAIProvider
+            ? primaryPromptSelection == .privateAI
+            : primaryPromptSelection == .default && item.id == self.settings.selectedProviderID
         let fluidModel = self.selectedPrivateAIModel
         let fluidStatus = self.privateAIModelStatus(for: fluidModel)
         let isFluidInstalled = PrivateAIIntegrationService.isModelInstalled(fluidModel)
@@ -1545,6 +1657,7 @@ extension AIEnhancementSettingsView {
         let fluidDownloadProgress = self.privateAILoadState.downloadProgress(for: fluidModel.id)
         let isFluidLoading = self.privateAILoadState.isLoading(fluidModel.id)
         let hasFluidLoadFailure = self.privateAILoadState.failureMessage(for: fluidModel.id) != nil
+        let hasFluidUpdate = self.privateAIModelUpdateStatusByID[fluidModel.id]?.state == .updateAvailable
         let isFluidVerified = self.isPrivateAIModelVerified(fluidModel)
         let isFluidTesting = self.viewModel.isTestingConnection && self.viewModel.selectedProviderID == PrivateAIProviderFeature.shared.providerID
         let isFluidBusy = isFluidDownloading || isFluidLoading || isFluidTesting
@@ -1580,11 +1693,35 @@ extension AIEnhancementSettingsView {
 
                 // Fixed action grid: companion icon, optional reasoning, primary action.
                 HStack(spacing: 8) {
+                    Button {
+                        guard !isDefaultProvider else { return }
+                        self.makePrimaryDefaultProvider(item.id, isPrivateAI: isPrivateAIProvider)
+                    } label: {
+                        Label(
+                            isDefaultProvider ? "Default" : "Use as default",
+                            systemImage: isDefaultProvider ? "checkmark.circle.fill" : "circle"
+                        )
+                        .font(.caption2.weight(.semibold))
+                        .lineLimit(1)
+                        .frame(width: 92, height: AISettingsLayout.providerRowControlHeight)
+                    }
+                    .fluidCompactButton(
+                        isReady: isDefaultProvider,
+                        foreground: isDefaultProvider ? self.theme.palette.accent : nil,
+                        borderColor: isDefaultProvider ? self.theme.palette.accent.opacity(0.5) : nil
+                    )
+                    .help(
+                        isDefaultProvider
+                            ? "Used by the main dictation shortcut"
+                            : "Use this provider for the main dictation shortcut"
+                    )
+
                     if isPrivateAIProvider {
                         SearchableModelPicker(
                             models: PrivateAIModelRegistry.modelIDs(),
                             selectedModel: self.privateAIModelBinding,
                             selectionEnabled: !isFluidBusy,
+                            displayName: self.privateAIModelDisplayName,
                             controlWidth: 180,
                             controlHeight: AISettingsLayout.providerRowControlHeight
                         )
@@ -1594,11 +1731,22 @@ extension AIEnhancementSettingsView {
                         }
                         .frame(width: iconColumnWidth, height: AISettingsLayout.providerRowControlHeight)
 
-                        Color.clear
+                        if hasFluidUpdate {
+                            self.companionIconButton(
+                                systemName: "arrow.down.circle",
+                                help: "Update and verify model"
+                            ) {
+                                self.updatePrivateAIModel(fluidModel)
+                            }
+                            .disabled(isFluidBusy)
                             .frame(width: iconColumnWidth, height: AISettingsLayout.providerRowControlHeight)
+                        } else {
+                            Color.clear
+                                .frame(width: iconColumnWidth, height: AISettingsLayout.providerRowControlHeight)
+                        }
 
                         Button(action: {
-                            self.activateProvider(item.id)
+                            self.viewModel.configureProvider(item.id)
                             if isEditing {
                                 self.viewModel.clearEditProviderDraft()
                             } else {
@@ -1627,7 +1775,7 @@ extension AIEnhancementSettingsView {
                             opacity: canFetchModels ? 1 : 0.45,
                             help: "Refresh model list"
                         ) {
-                            self.activateProvider(item.id)
+                            self.viewModel.configureProvider(item.id)
                             Task { await self.viewModel.fetchModelsForCurrentProvider() }
                         }
                         .frame(width: iconColumnWidth, height: AISettingsLayout.providerRowControlHeight)
@@ -1636,7 +1784,7 @@ extension AIEnhancementSettingsView {
                             .frame(width: iconColumnWidth, height: AISettingsLayout.providerRowControlHeight)
 
                         Button(action: {
-                            self.activateProvider(item.id)
+                            self.viewModel.configureProvider(item.id)
                             if isEditing {
                                 self.viewModel.clearEditProviderDraft()
                                 self.viewModel.setEditingAPIKey(false, for: item.id)
@@ -1707,16 +1855,8 @@ extension AIEnhancementSettingsView {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(self.theme.palette.cardBorder.opacity(0.25), lineWidth: 0.8)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(isSelected ? Color.fluidGreen.opacity(0.9) : .clear, lineWidth: 2)
-        )
         // Verified rows always have interactive elements, don't use drawingGroup
         .contentShape(Rectangle())
-        .onTapGesture {
-            self.activateProvider(item.id)
-            self.expandedProviderID = nil
-        }
     }
 
     private func providerBaseURL(for item: ProviderItem) -> String {
@@ -1841,14 +1981,25 @@ extension AIEnhancementSettingsView {
         return nil
     }
 
-    func selectProvider(_ providerID: String) {
-        self.viewModel.selectProvider(providerID)
-    }
-
     private func activateProvider(_ providerID: String) {
         self.viewModel.selectedProviderID = providerID
         self.viewModel.handleProviderChange(providerID)
         self.viewModel.connectionStatus = self.viewModel.connectionStatus(for: providerID)
+    }
+
+    private func makePrimaryDefaultProvider(_ providerID: String, isPrivateAI: Bool) {
+        if isPrivateAI {
+            self.viewModel.setDictationPromptSelection(.privateAI, for: .primary)
+            return
+        }
+
+        self.activateProvider(providerID)
+
+        var defaultConfiguration = self.settings.dictationPromptConfiguration(for: .default)
+        defaultConfiguration.providerID = ""
+        defaultConfiguration.modelName = ""
+        self.settings.setDictationPromptConfiguration(defaultConfiguration, for: .default)
+        self.viewModel.setDictationPromptSelection(.default, for: .primary)
     }
 
     private func modelBinding(for providerID: String) -> Binding<String> {
@@ -1867,7 +2018,7 @@ extension AIEnhancementSettingsView {
         let hasEnabledConfig = self.viewModel.isReasoningEnabled(for: providerID)
 
         return Button(action: {
-            self.activateProvider(providerID)
+            self.viewModel.configureProvider(providerID)
             self.viewModel.openReasoningConfig()
         }) {
             Image(systemName: hasEnabledConfig ? "brain.fill" : "brain")
@@ -1945,6 +2096,7 @@ extension AIEnhancementSettingsView {
                         models: PrivateAIModelRegistry.modelIDs(),
                         selectedModel: self.privateAIModelBinding,
                         selectionEnabled: !isBusy,
+                        displayName: self.privateAIModelDisplayName,
                         controlWidth: 260,
                         controlHeight: AISettingsLayout.providerRowControlHeight
                     )
